@@ -1,10 +1,11 @@
 {
     "name": "Tests",
+    "rootNamespace": "",
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.Mathematics",
-        "MeshCutter"
+        "MeshTools"
     ],
     "includePlatforms": [
         "Editor"
