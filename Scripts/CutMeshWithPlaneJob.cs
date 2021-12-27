@@ -10,7 +10,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using System;
 using UnityEngine.Rendering;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public static partial class MeshCutter
     {

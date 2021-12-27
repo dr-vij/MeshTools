@@ -10,7 +10,7 @@ using System.Diagnostics;
 using Supercluster.KDTree;
 using System;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public struct TesseleationResult : IDisposable
     {

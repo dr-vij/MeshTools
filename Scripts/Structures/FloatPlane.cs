@@ -4,7 +4,7 @@ using System.Security.AccessControl;
 using Unity.Mathematics;
 using UnityEngine;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public enum LineToPlaneIntersection
     {

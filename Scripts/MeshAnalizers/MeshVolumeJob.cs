@@ -10,7 +10,7 @@ using UnityEngine;
 
 using static UnityEngine.Mesh;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public struct MeshVolumeData
     {

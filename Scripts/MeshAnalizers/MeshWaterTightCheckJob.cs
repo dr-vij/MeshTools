@@ -8,7 +8,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using static UnityEngine.Mesh;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public static partial class MeshAnalizers
     {

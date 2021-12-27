@@ -4,7 +4,7 @@ using UnityEngine;
 using Unity.Mathematics;
 using System;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public struct Edge : IEquatable<Edge>
     {

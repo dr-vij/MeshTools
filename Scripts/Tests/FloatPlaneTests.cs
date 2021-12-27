@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.TestTools;
-using ViJ.MeshTools;
 
-namespace ViJ.MeshTools.Tests
+namespace ViJMeshTools.Tests
 {
     public class FloatPlaneTests
     {

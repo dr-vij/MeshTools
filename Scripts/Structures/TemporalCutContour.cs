@@ -5,7 +5,7 @@ using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public enum SegmentConnectionResult
     {

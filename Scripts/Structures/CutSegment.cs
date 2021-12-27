@@ -4,7 +4,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using System;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     /// <summary>
     /// This struct is used inside cut job. I use ID to check instances for quicker search in hashmaps

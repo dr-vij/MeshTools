@@ -4,7 +4,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace ViJ.MeshTools
+namespace ViJMeshTools
 {
     public static partial class MeshAnalizers
     {

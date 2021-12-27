@@ -5,76 +5,79 @@ using System.Diagnostics;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
-public static class Stopwatcher
+namespace ViJMeshTools
 {
-    private static Dictionary<string, Stopwatch> mStopwathcersDictionary = new Dictionary<string, Stopwatch>();
-
-    public static void Clear()
+    public static class Stopwatcher
     {
-        foreach (var sw in mStopwathcersDictionary.Values)
-            sw.Stop();
-        mStopwathcersDictionary.Clear();
-    }
+        private static Dictionary<string, Stopwatch> mStopwathcersDictionary = new Dictionary<string, Stopwatch>();
 
-    public static void ResetAll()
-    {
-        foreach (var sw in mStopwathcersDictionary.Values)
+        public static void Clear()
         {
+            foreach (var sw in mStopwathcersDictionary.Values)
+                sw.Stop();
+            mStopwathcersDictionary.Clear();
+        }
+
+        public static void ResetAll()
+        {
+            foreach (var sw in mStopwathcersDictionary.Values)
+            {
+                sw.Stop();
+                sw.Reset();
+            }
+        }
+
+        public static void Start(string key)
+        {
+            var sw = GetStopwatch(key);
+            sw.Start();
+        }
+
+        public static void Pause(string key)
+        {
+            var sw = GetStopwatch(key, true);
+            sw.Stop();
+        }
+
+        public static void Reset(string key)
+        {
+            var sw = GetStopwatch(key, true);
             sw.Stop();
             sw.Reset();
         }
-    }
 
-    public static void Start(string key)
-    {
-        var sw = GetStopwatch(key);
-        sw.Start();
-    }
-
-    public static void Pause(string key)
-    {
-        var sw = GetStopwatch(key, true);
-        sw.Stop();
-    }
-
-    public static void Reset(string key)
-    {
-        var sw = GetStopwatch(key, true);
-        sw.Stop();
-        sw.Reset();
-    }
-
-    public static Tuple<string, long>[] GetMilliseconds()
-    {
-        var arr = new Tuple<string, long>[mStopwathcersDictionary.Count];
-        int counter = 0;
-        foreach (var swPair in mStopwathcersDictionary)
+        public static Tuple<string, long>[] GetMilliseconds()
         {
-            arr[counter++] = new Tuple<string, long>(swPair.Key, swPair.Value.ElapsedMilliseconds);
+            var arr = new Tuple<string, long>[mStopwathcersDictionary.Count];
+            int counter = 0;
+            foreach (var swPair in mStopwathcersDictionary)
+            {
+                arr[counter++] = new Tuple<string, long>(swPair.Key, swPair.Value.ElapsedMilliseconds);
+            }
+            return arr;
         }
-        return arr;
-    }
 
-    public static void DebugLog()
-    {
-        Debug.Log("------");
-        var sws = GetMilliseconds();
-        foreach(var sw in sws)
+        public static void DebugLog()
         {
-            Debug.Log($"StopwatchKey: {sw.Item1}, milliseconds {sw.Item2}");
+            Debug.Log("------");
+            var sws = GetMilliseconds();
+            foreach (var sw in sws)
+            {
+                Debug.Log($"StopwatchKey: {sw.Item1}, milliseconds {sw.Item2}");
+            }
+            Debug.Log("------");
         }
-        Debug.Log("------");
-    }
 
-    private static Stopwatch GetStopwatch(string key, bool logIfNotFound = false)
-    {
-        if (!mStopwathcersDictionary.TryGetValue(key, out var sw))
+        private static Stopwatch GetStopwatch(string key, bool logIfNotFound = false)
         {
-            if (logIfNotFound)
-                Debug.LogError($"Stopwatch {key} not found");
-            sw = new Stopwatch();
-            mStopwathcersDictionary.Add(key, sw);
+            if (!mStopwathcersDictionary.TryGetValue(key, out var sw))
+            {
+                if (logIfNotFound)
+                    Debug.LogError($"Stopwatch {key} not found");
+                sw = new Stopwatch();
+                mStopwathcersDictionary.Add(key, sw);
+            }
+            return sw;
         }
-        return sw;
     }
 }
