@@ -13,7 +13,7 @@ namespace ViJMeshTools
     public static partial class MeshAnalizers
     {
         [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low)]
-        public struct MeshWatertightCheckJob : IJob, IDisposable
+        public struct MeshWatertightValidationJob : IJob, IDisposable
         {
             [WriteOnly] private NativeArray<bool> mIsMeshWatertightResult;
 
@@ -27,7 +27,7 @@ namespace ViJMeshTools
                 mIsMeshWatertightResult = new NativeArray<bool>(1, Allocator.TempJob, NativeArrayOptions.ClearMemory);
             }
 
-            //The idea behind this algorithm is criteria, that each is part of two polygons. Otherwize it is a hole
+            //The idea behind this algorithm is criteria, that each edge is part of two polygons. Otherwize it is a hole
             public void Execute()
             {
                 var subMeshCount = mMeshData.subMeshCount;

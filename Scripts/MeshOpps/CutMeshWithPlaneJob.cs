@@ -50,11 +50,11 @@ namespace ViJMeshTools
 
             //RETURN DATA
             [WriteOnly] public NativeList<VertexBufferData> PositiveVertices;
-            [WriteOnly] public NativeList<ushort> PositiveIndicies;
+            [WriteOnly] public NativeList<int> PositiveIndicies;
             [WriteOnly] public NativeArray<SubMeshDescriptor> PositiveSubmeshes;
 
             [WriteOnly] public NativeList<VertexBufferData> NegativeVertices;
-            [WriteOnly] public NativeList<ushort> NegativeIndicies;
+            [WriteOnly] public NativeList<int> NegativeIndicies;
             [WriteOnly] public NativeArray<SubMeshDescriptor> NegativeSubmeshes;
 
             [WriteOnly] public NativeHashSet<CutSegment> CutSegments;
@@ -69,11 +69,11 @@ namespace ViJMeshTools
 
                 //Initialize positive mesh to return
                 PositiveVertices = new NativeList<VertexBufferData>(Allocator.Persistent);
-                PositiveIndicies = new NativeList<ushort>(Allocator.Persistent);
+                PositiveIndicies = new NativeList<int>(Allocator.Persistent);
                 PositiveSubmeshes = new NativeArray<SubMeshDescriptor>(mInitialMeshData.subMeshCount, Allocator.Persistent);
 
                 NegativeVertices = new NativeList<VertexBufferData>(Allocator.Persistent);
-                NegativeIndicies = new NativeList<ushort>(Allocator.Persistent);
+                NegativeIndicies = new NativeList<int>(Allocator.Persistent);
                 NegativeSubmeshes = new NativeArray<SubMeshDescriptor>(mInitialMeshData.subMeshCount, Allocator.Persistent);
 
                 CutSegments = new NativeHashSet<CutSegment>(100, Allocator.Persistent);
@@ -91,7 +91,7 @@ namespace ViJMeshTools
             {
                 //reading the initial mesh
                 var initialVertices = mInitialMeshData.GetVertexData<VertexBufferData>(0);
-                var initialIndicies = mInitialMeshData.GetIndexData<ushort>();
+                var initialIndicies = mInitialMeshData.GetIndexData<int>();
 
                 //allocate native lists for return
                 var capacity = mInitialMeshData.vertexCount;
@@ -116,8 +116,8 @@ namespace ViJMeshTools
                     var firstNegativeVertex = negativeVertCounter;
                     var firstPositiveIndex = positiveIndexCounter;
                     var firstNegativeIndex = negativeIndexCounter;
-                    ushort positiveCounter = 0;
-                    ushort negativeCounter = 0;
+                    int positiveCounter = 0;
+                    int negativeCounter = 0;
 
                     var indexFrom = currentSubmesh.indexStart;
                     var indexTo = currentSubmesh.indexStart + currentSubmesh.indexCount;

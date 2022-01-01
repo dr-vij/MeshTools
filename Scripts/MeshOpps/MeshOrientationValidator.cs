@@ -11,7 +11,14 @@ namespace ViJMeshTools
 {
     public partial class MeshAnalizers
     {
-        public static bool IsVolumeRotationIndependent(MeshData meshData, float inverseTolerance = 1e3f)
+        /// <summary>
+        /// The Idea of this algorithm is to rotate mesh in different ways and check its volume.
+        /// If volume is orientation independent it means that mesh is watertight
+        /// </summary>
+        /// <param name="meshData"></param>
+        /// <param name="inverseTolerance"></param>
+        /// <returns></returns>
+        public static bool IsMeshVolumeOrientationIndependent(MeshData meshData, float inverseTolerance = 1e3f)
         {
             var volumeMinMax = new float2(float.PositiveInfinity, float.NegativeInfinity);
 

@@ -17,7 +17,7 @@ namespace ViJMeshTools
         /// <summary>
         /// Indicies for triangle of the tesselated mesh
         /// </summary>
-        public NativeArray<ushort> Indicies;
+        public NativeArray<int> Indicies;
 
         /// <summary>
         /// Verticies for triangle of the tesselated mesh
@@ -53,9 +53,9 @@ namespace ViJMeshTools
                 tess.AddContour(contourVertex);
             tess.Tessellate(windingRule: WindingRule.EvenOdd, elementType: ElementType.Polygons, polySize: 3, combineCallback: null, normal: default);
 
-            var indicies = new NativeArray<ushort>(tess.Elements.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            var indicies = new NativeArray<int>(tess.Elements.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             for (int i = 0; i < indicies.Length; i++)
-                indicies[i] = (ushort)tess.Elements[i];
+                indicies[i] = (int)tess.Elements[i];
 
             var ret = new TesseleationResult()
             {
@@ -77,7 +77,14 @@ namespace ViJMeshTools
             return dist;
         };
 
-        private static List<float3[]> ConsolidateContoursFromSegmentsKDTree(HashSet<CutSegment> rawSegments)
+        /// <summary>
+        /// We take all edges and find closed segments in them
+        /// This method uses KDTree. But unfortunately it is not so fast
+        /// IMPORTANT MOMENT: HASHSET WILL BE MODIFIED
+        /// </summary>
+        /// <param name="rawSegments"></param>
+        /// <returns></returns>
+        public static List<float3[]> ConsolidateContoursFromSegmentsKDTree(HashSet<CutSegment> rawSegments)
         {
             var counter = 0;
             var nodesCount = rawSegments.Count * 2;
@@ -152,7 +159,13 @@ namespace ViJMeshTools
             return contours;
         }
 
-        private static List<float3[]> ConsolidateContoursFromSegmentsBruteforce(HashSet<CutSegment> rawSegments)
+        /// <summary>
+        /// Takes all segments and creates closed contours from it.
+        /// IMPORTANTE NOTE: HASHSET WILL BE MODIFIED
+        /// </summary>
+        /// <param name="rawSegments"></param>
+        /// <returns></returns>
+        public static List<float3[]> ConsolidateContoursFromSegmentsBruteforce(HashSet<CutSegment> rawSegments)
         {
             var contours = new List<float3[]>();
             var listToClear = new List<CutSegment>();

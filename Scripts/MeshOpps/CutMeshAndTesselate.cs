@@ -79,15 +79,15 @@ namespace ViJMeshTools
         /// <param name="tessVertices">Cut contour vertices</param>
         /// <param name="tessSubmesh">the submesh that should be applied to cut contour</param>
         public static void CombineMeshWithTesselation(
-            MeshData meshData, NativeList<ushort> initialIndicies, NativeList<VertexBufferData> initialVertices, NativeArray<SubMeshDescriptor> initialSubmeshes,
-            NativeArray<ushort> tessIndicies, NativeArray<VertexBufferData> tessVertices,
+            MeshData meshData, NativeList<int> initialIndicies, NativeList<VertexBufferData> initialVertices, NativeArray<SubMeshDescriptor> initialSubmeshes,
+            NativeArray<int> tessIndicies, NativeArray<VertexBufferData> tessVertices,
             bool addNewSubmesh)
         {
             var initialVertexCount = initialVertices.Length;
             var initialIndexCount = initialIndicies.Length;
 
             //Preparing write index and vertex data
-            meshData.SetIndexBufferParams(initialIndicies.Length + tessIndicies.Length, IndexFormat.UInt16);
+            meshData.SetIndexBufferParams(initialIndicies.Length + tessIndicies.Length, IndexFormat.UInt32);
             meshData.SetVertexBufferParams(initialVertices.Length + tessVertices.Length,
                 new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, dimension: 3, stream: 0),
                 new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, dimension: 3, stream: 0),
@@ -115,9 +115,9 @@ namespace ViJMeshTools
             else
             {
                 var lastSubmesh = submeshes[submeshes.Length - 1];
-                ushort addIndex = (ushort)lastSubmesh.vertexCount;
+                int addIndex = (int)lastSubmesh.vertexCount;
                 for (int i = 0; i < tessIndicies.Length; i++)
-                    initialIndicies.Add((ushort)(tessIndicies[i] + addIndex));
+                    initialIndicies.Add((int)(tessIndicies[i] + addIndex));
                 initialVertices.AddRange(tessVertices);
                 lastSubmesh.vertexCount += tessVertices.Length;
                 lastSubmesh.indexCount += tessIndicies.Length;
@@ -125,7 +125,7 @@ namespace ViJMeshTools
             }
 
             var meshVertices = meshData.GetVertexData<VertexBufferData>(0);
-            var meshIndicies = meshData.GetIndexData<ushort>();
+            var meshIndicies = meshData.GetIndexData<int>();
             initialVertices.AsArray().CopyTo(meshVertices);
             initialIndicies.AsArray().CopyTo(meshIndicies);
 

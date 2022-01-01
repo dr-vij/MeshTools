@@ -61,7 +61,7 @@ namespace ViJMeshTools
                 var centerOfMass = float3.zero;
                 for (int i = 0; i < submeshCount; i++)
                 {
-                    var indicies = new NativeArray<ushort>(mInitialMeshData.GetSubMesh(i).indexCount, Allocator.Temp);
+                    var indicies = new NativeArray<int>(mInitialMeshData.GetSubMesh(i).indexCount, Allocator.Temp);
                     var indexCount = indicies.Length;
                     mInitialMeshData.GetIndices(indicies, i, true);
                     for (int j = 0; j < indexCount; j += 3)

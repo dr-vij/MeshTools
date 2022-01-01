@@ -10,11 +10,25 @@ namespace ViJMeshTools
 {
     public static class ConvertionsHelper
     {
+        /// <summary>
+        /// Converts Array to Native Array
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="sourceArray"></param>
+        /// <param name="allocator"></param>
+        /// <returns></returns>
         public static NativeArray<T> ToNativeArray<T>(this T[] sourceArray, Allocator allocator) where T : struct
         {
             return new NativeArray<T>(sourceArray, allocator);
         }
 
+        /// <summary>
+        /// Converts NativeHashMap To Dictionary
+        /// </summary>
+        /// <typeparam name="TKey"></typeparam>
+        /// <typeparam name="TValue"></typeparam>
+        /// <param name="initialNativeHashMap"></param>
+        /// <returns></returns>
         public static Dictionary<TKey, TValue> ToDictionary<TKey, TValue>(this NativeHashMap<TKey, TValue> initialNativeHashMap) where TKey : struct, IEquatable<TKey> where TValue : struct
         {
             var retDict = new Dictionary<TKey, TValue>(initialNativeHashMap.Count());
@@ -24,6 +38,12 @@ namespace ViJMeshTools
             return retDict;
         }
 
+        /// <summary>
+        /// Converts NativeHashSet To HashSet
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="initialHashset"></param>
+        /// <returns></returns>
         public static HashSet<T> ToHashSet<T>(this NativeHashSet<T> initialHashset) where T : unmanaged, IEquatable<T>
         {
             var retHashSet = new HashSet<T>();
