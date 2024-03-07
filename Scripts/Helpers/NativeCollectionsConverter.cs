@@ -1,14 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
-using Unity.Mathematics;
 using Unity.Collections;
-using LibTessDotNet;
 using System;
 
 namespace ViJMeshTools
 {
-    public static class ConvertionsHelper
+    public static class NativeCollectionsConverter
     {
         /// <summary>
         /// Converts Array to Native Array
@@ -29,12 +26,12 @@ namespace ViJMeshTools
         /// <typeparam name="TValue"></typeparam>
         /// <param name="initialNativeHashMap"></param>
         /// <returns></returns>
-        public static Dictionary<TKey, TValue> ToDictionary<TKey, TValue>(this NativeHashMap<TKey, TValue> initialNativeHashMap) where TKey : struct, IEquatable<TKey> where TValue : struct
+        public static Dictionary<TKey, TValue> ToDictionary<TKey, TValue>(this NativeHashMap<TKey, TValue> initialNativeHashMap) where TKey : unmanaged, IEquatable<TKey> where TValue : unmanaged
         {
-            var retDict = new Dictionary<TKey, TValue>(initialNativeHashMap.Count());
-            using (var enumerator = initialNativeHashMap.GetEnumerator())
-                while (enumerator.MoveNext())
-                    retDict.Add(enumerator.Current.Key, enumerator.Current.Value);
+            var retDict = new Dictionary<TKey, TValue>(initialNativeHashMap.Count);
+            using var enumerator = initialNativeHashMap.GetEnumerator();
+            while (enumerator.MoveNext())
+                retDict.Add(enumerator.Current.Key, enumerator.Current.Value);
             return retDict;
         }
 
@@ -47,9 +44,9 @@ namespace ViJMeshTools
         public static HashSet<T> ToHashSet<T>(this NativeHashSet<T> initialHashset) where T : unmanaged, IEquatable<T>
         {
             var retHashSet = new HashSet<T>();
-            using (var enumerator = initialHashset.GetEnumerator())
-                while (enumerator.MoveNext())
-                    retHashSet.Add(enumerator.Current);
+            using var enumerator = initialHashset.GetEnumerator();
+            while (enumerator.MoveNext())
+                retHashSet.Add(enumerator.Current);
             return retHashSet;
         }
     }
