@@ -533,11 +533,11 @@ namespace PropellerHead
                 }
 
                 // Create vertices for each point
+                // TODO: What if I want to make a sphere? should I calculate normals or maybe share a vertex?
+                // I do not fucking know now
                 var vertices = new List<long>();
                 foreach (long pointOffset in pointOffsets)
-                {
                     vertices.Add(AddVertex(pointOffset));
-                }
 
                 // Create primitive
                 long offset = Prims.Allocate();

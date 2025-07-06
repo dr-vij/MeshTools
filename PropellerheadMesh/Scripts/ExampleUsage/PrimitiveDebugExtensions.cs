@@ -103,7 +103,7 @@ namespace PropellerHead
             if (material == null)
             {
                 // Create material with your custom vertex color shader
-                material = new Material(Shader.Find("Shader Graphs/VertexColorDebug"));
+                material = new Material(Shader.Find("Shader Graphs/VertexColorLitDebug"));
                 material.name = "Vertex Color Debug Material";
             }
 
@@ -226,7 +226,7 @@ namespace PropellerHead
 
         private static Attribute<float3> GetPointColorAttribute(Detail detail)
         {
-            var colorId = AttribID.GetId("color");
+            var colorId = AttribID.Color;
             if (colorId != -1 && detail.PointAttribs.ContainsKey(colorId))
             {
                 return detail.GetPointAttrib<float3>(colorId);

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Unity.Mathematics;
 
-namespace PropellerHead
+namespace PropellerHead.Operators
 {
     public static class NormalsOperators
     {
@@ -17,7 +17,7 @@ namespace PropellerHead
             if (detail == null)
                 throw new ArgumentNullException(nameof(detail));
 
-            // Get or create normal attribute using the existing system ID
+            // Get or create a normal attribute using the existing system ID
             var normalAttrib = detail.GetVertexAttrib<float3>(AttribID.Normal);
             if (normalAttrib == null)
             {
@@ -66,7 +66,7 @@ namespace PropellerHead
             if (vertices.Count < 3)
                 return float3.zero;
 
-            // Get positions of first three vertices
+            // Get positions of the first three vertices
             var pointOffset0 = detail.GetVertexPoint(vertices[0]);
             var pointOffset1 = detail.GetVertexPoint(vertices[1]);
             var pointOffset2 = detail.GetVertexPoint(vertices[2]);
@@ -75,7 +75,7 @@ namespace PropellerHead
             var pos1 = detail.GetPointPos(pointOffset1);
             var pos2 = detail.GetPointPos(pointOffset2);
 
-            // Calculate normal using cross product
+            // Calculate normal using cross-product
             var edge1 = pos1 - pos0;
             var edge2 = pos2 - pos0;
             var normal = math.normalize(math.cross(edge1, edge2));
@@ -177,7 +177,7 @@ namespace PropellerHead
 
             var angle = math.acos(math.clamp(math.dot(edge1, edge2), -1f, 1f));
 
-            // Use angle as weight - larger angles contribute more
+            // Use an angle as a weight-larger angles contribute more
             return math.max(angle, 0.1f);
         }
 
