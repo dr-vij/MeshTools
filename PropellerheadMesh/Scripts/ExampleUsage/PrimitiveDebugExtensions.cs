@@ -152,44 +152,6 @@ namespace PropellerHead
         }
 
         /// <summary>
-        /// Draws all primitives as colored wireframes using vertex colors (legacy)
-        /// </summary>
-        /// <param name="detail">The detail to visualize primitives from</param>
-        /// <param name="fallbackColor">Fallback color if no color attribute</param>
-        public static void DrawDebugPrimitives(this Detail detail, Color fallbackColor = default)
-        {
-            if (detail == null)
-                return;
-
-            if (fallbackColor == default)
-                fallbackColor = Color.black;
-
-            var colorAttrib = GetPointColorAttribute(detail);
-
-            // Iterate through all primitives
-            foreach (var primKvp in detail.Primitives)
-            {
-                var primitive = primKvp.Value;
-                var vertices = GetPrimitiveVertices(primitive, detail);
-
-                if (vertices.Count < 3)
-                    continue;
-
-                // Use first vertex color for the whole primitive
-                var primitiveColor = GetVertexColor(primitive.VertexOffsets[0], detail, colorAttrib, fallbackColor);
-                Gizmos.color = primitiveColor;
-
-                // Draw wireframe of primitive
-                for (int i = 0; i < vertices.Count; i++)
-                {
-                    var start = vertices[i];
-                    var end = vertices[(i + 1) % vertices.Count];
-                    Gizmos.DrawLine(start, end);
-                }
-            }
-        }
-
-        /// <summary>
         /// Draws all unique points as colored spheres using Gizmos
         /// </summary>
         /// <param name="detail">The detail to visualize points from</param>

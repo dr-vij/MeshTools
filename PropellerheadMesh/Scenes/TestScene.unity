@@ -285,8 +285,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4882cfb6fb9d14631b06b01aa788ff53, type: 3}
   m_Name: 
   m_EditorClassIdentifier: MeshTools::CubeExampleUsage
-  showVertexSpheres: 1
-  sphereRadius: 0.05
+  ShowVertexSpheres: 1
+  ShowPrimitiveWireframes: 1
+  SphereRadius: 0.05
 --- !u!4 &678556305
 Transform:
   m_ObjectHideFlags: 0

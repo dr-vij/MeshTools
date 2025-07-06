@@ -16,8 +16,8 @@ namespace PropellerHead
     /// </summary>
     public class Primitive : IDisposable
     {
-        private readonly HashSet<long> m_VertexOffsets = new HashSet<long>();
-        private readonly ReaderWriterLockSlim m_Lock = new ReaderWriterLockSlim();
+        private readonly HashSet<long> m_VertexOffsets = new();
+        private readonly ReaderWriterLockSlim m_Lock = new();
         private IReadOnlyList<long> m_CachedReadOnlyVertices;
         private volatile bool m_CacheInvalid = true;
         private volatile bool m_Disposed = false;
@@ -338,13 +338,13 @@ namespace PropellerHead
     /// <summary>
     /// Performance metrics for Primitive monitoring
     /// </summary>
-    public struct PrimitiveMetrics
+    public readonly struct PrimitiveMetrics
     {
-        public int VertexCount { get; private set; }
-        public long AddCount { get; private set; }
-        public long RemoveCount { get; private set; }
-        public long ContainsCount { get; private set; }
-        public bool CacheInvalid { get; private set; }
+        public int VertexCount { get; }
+        public long AddCount { get; }
+        public long RemoveCount { get; }
+        public long ContainsCount { get; }
+        public bool CacheInvalid { get; }
 
         public PrimitiveMetrics(int vertexCount, long addCount, long removeCount, long containsCount, bool cacheInvalid)
         {
