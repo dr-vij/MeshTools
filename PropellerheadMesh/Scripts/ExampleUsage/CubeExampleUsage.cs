@@ -1,6 +1,5 @@
 using UnityEngine;
 using Unity.Mathematics;
-using System.Collections.Generic;
 using System.Linq;
 using PropellerHead.Generators;
 using PropellerHead.Operators;
@@ -9,7 +8,7 @@ namespace PropellerHead
 {
     public class CubeExampleUsage : MonoBehaviour
     {
-        private Detail m_CubeDetail;
+        private Detail m_TestDetail;
         private GameObject m_DebugMeshObject;
         private PositionWiggler m_Wiggler;
 
@@ -25,6 +24,7 @@ namespace PropellerHead
         private void Start()
         {
             CreateCube();
+            // CreateSphere();
             SetupWiggler();
             CalculateNormals();
             CreateDebugVisualization();
@@ -32,19 +32,25 @@ namespace PropellerHead
 
         private void CalculateNormals()
         {
-            if (m_CubeDetail == null)
+            if (m_TestDetail == null)
                 return;
-            NormalsOperators.CalculateNormals(m_CubeDetail);
+            NormalsOperators.CalculateNormals(m_TestDetail);
+        }
+
+        private void CreateSphere()
+        {
+            m_TestDetail = new Detail();
+            m_TestDetail.GenerateSphere(1, 2);
         }
 
         private void CreateCube()
         {
-            m_CubeDetail = new Detail();
+            m_TestDetail = new Detail();
             var size = new float3(2, 2, 2);
-            m_CubeDetail.GenerateCube(size);
+            m_TestDetail.GenerateCube(size);
 
             var pointColorAttrib = new Attribute<float3>(AttribID.Color);
-            m_CubeDetail.AddPointAttrib(pointColorAttrib);
+            m_TestDetail.AddPointAttrib(pointColorAttrib);
 
             var vertexColors = new float3[]
             {
@@ -58,10 +64,10 @@ namespace PropellerHead
                 new(0, 0, 0) // Black
             };
 
-            var pointOffsets = m_CubeDetail.Points.GetAllOffsets().ToArray();
+            var pointOffsets = m_TestDetail.Points.GetAllOffsets().ToArray();
             for (var i = 0; i < pointOffsets.Length && i < vertexColors.Length; i++)
             {
-                pointColorAttrib.Set(pointOffsets[i], vertexColors[i], m_CubeDetail.Points);
+                pointColorAttrib.Set(pointOffsets[i], vertexColors[i], m_TestDetail.Points);
             }
 
             var faceColors = new float3[]
@@ -75,31 +81,31 @@ namespace PropellerHead
             };
 
             var primitiveColorAttrib = new Attribute<float3>(AttribID.Register("face_color"));
-            m_CubeDetail.AddPrimAttrib(primitiveColorAttrib);
+            m_TestDetail.AddPrimAttrib(primitiveColorAttrib);
 
-            var primOffsets = m_CubeDetail.Prims.GetAllOffsets().ToArray();
+            var primOffsets = m_TestDetail.Prims.GetAllOffsets().ToArray();
             for (var faceIndex = 0; faceIndex < primOffsets.Length && faceIndex < faceColors.Length; faceIndex++)
             {
                 var primOffset = primOffsets[faceIndex];
-                primitiveColorAttrib.Set(primOffset, faceColors[faceIndex], m_CubeDetail.Prims);
+                primitiveColorAttrib.Set(primOffset, faceColors[faceIndex], m_TestDetail.Prims);
 
                 Debug.Log($"Face {faceIndex} assigned color {faceColors[faceIndex]} at primitive offset {primOffset}");
             }
 
-            var stats = m_CubeDetail.GetStats();
+            var stats = m_TestDetail.GetStats();
             Debug.Log($"Cube created with {stats.PointCount} points, {stats.VertexCount} vertices, {stats.PrimCount} primitives");
 
-            var detailedStats = m_CubeDetail.GetDetailedStats();
+            var detailedStats = m_TestDetail.GetDetailedStats();
             Debug.Log($"Detailed stats: {detailedStats}");
 
-            var isValid = m_CubeDetail.ValidateIntegrity();
+            var isValid = m_TestDetail.ValidateIntegrity();
             Debug.Log($"Cube structure is valid: {isValid}");
         }
 
         private void SetupWiggler()
         {
             m_Wiggler = new PositionWiggler();
-            m_Wiggler.Initialize(m_CubeDetail);
+            m_Wiggler.Initialize(m_TestDetail);
             UpdateWigglerSettings();
         }
 
@@ -116,31 +122,27 @@ namespace PropellerHead
 
         private void Update()
         {
-            if (m_Wiggler != null && m_CubeDetail != null)
+            if (m_Wiggler != null && m_TestDetail != null)
             {
                 UpdateWigglerSettings();
-                m_Wiggler.Apply(m_CubeDetail, Time.time);
+                m_Wiggler.Apply(m_TestDetail, Time.time);
             }
 
             CalculateNormals();
-
             if (m_DebugMeshObject != null)
-            {
                 UpdateDebugVisualization();
-            }
-
             CreateDebugVisualization();
         }
 
         private void CreateDebugVisualization()
         {
-            if (m_CubeDetail == null)
+            if (m_TestDetail == null)
                 return;
 
             if (m_DebugMeshObject != null)
                 Destroy(m_DebugMeshObject);
 
-            m_DebugMeshObject = m_CubeDetail.CreateDebugObject(Color.black);
+            m_DebugMeshObject = m_TestDetail.CreateDebugObject(Color.black);
 
             if (m_DebugMeshObject != null)
             {
@@ -151,14 +153,14 @@ namespace PropellerHead
 
         private void OnDrawGizmos()
         {
-            if (m_CubeDetail == null)
+            if (m_TestDetail == null)
                 return;
 
             if (ShowVertexSpheres)
-                m_CubeDetail.DrawDebugSpheres(SphereRadius, Color.black);
+                m_TestDetail.DrawDebugSpheres(SphereRadius, Color.black);
 
             if (ShowPrimitiveWireframes)
-                m_CubeDetail.DrawDebugPrimitivesWithFaceColor(Color.black);
+                m_TestDetail.DrawDebugPrimitivesWithFaceColor(Color.black);
         }
 
         private void UpdateDebugVisualization()
@@ -174,20 +176,20 @@ namespace PropellerHead
             if (mesh == null)
                 return;
 
-            var positionAttrib = m_CubeDetail.GetPointAttrib<float3>(AttribID.Position);
+            var positionAttrib = m_TestDetail.GetPointAttrib<float3>(AttribID.Position);
             if (positionAttrib == null)
                 return;
 
             var vertices = mesh.vertices;
-            var vertexCount = Mathf.Min(vertices.Length, m_CubeDetail.Points.Count);
-            var pointOffsets = m_CubeDetail.Points.GetAllOffsets().ToArray();
+            var vertexCount = Mathf.Min(vertices.Length, m_TestDetail.Points.Count);
+            var pointOffsets = m_TestDetail.Points.GetAllOffsets().ToArray();
 
             for (int i = 0; i < vertexCount; i++)
             {
                 if (i < pointOffsets.Length)
                 {
                     var pointOffset = pointOffsets[i];
-                    var position = positionAttrib.Get(pointOffset, m_CubeDetail.Points);
+                    var position = positionAttrib.Get(pointOffset, m_TestDetail.Points);
                     vertices[i] = position;
                 }
                 else
@@ -211,20 +213,20 @@ namespace PropellerHead
                     DestroyImmediate(m_DebugMeshObject);
             }
 
-            m_CubeDetail?.Dispose();
+            m_TestDetail?.Dispose();
             m_Wiggler = null;
         }
 
         [ContextMenu("Reset Wiggle")]
         public void ResetWiggle()
         {
-            m_Wiggler?.Reset(m_CubeDetail);
+            m_Wiggler?.Reset(m_TestDetail);
         }
 
         [ContextMenu("Reinitialize Wiggler")]
         public void ReinitializeWiggler()
         {
-            m_Wiggler?.Initialize(m_CubeDetail);
+            m_Wiggler?.Initialize(m_TestDetail);
         }
     }
 }

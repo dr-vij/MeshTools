@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Unity.Mathematics;
+using Unity.Collections;
 
 namespace PropellerHead.Operators
 {
     public static class NormalsOperators
     {
+        // Reusable collections to avoid allocations
+        private static readonly List<long> m_TempAdjacentPrimitives = new();
+        private static readonly List<long> m_TempVertices = new();
+        private static readonly List<long> m_TempAffectedPrimitives = new();
+
         /// <summary>
         /// Calculates and sets vertex normals based on face angles
         /// </summary>
@@ -25,8 +30,8 @@ namespace PropellerHead.Operators
                 detail.AddVertexAttrib(normalAttrib);
             }
 
-            // Cache for face normals
-            var faceNormals = new Dictionary<long, float3>();
+            // Pre-allocate dictionary with estimated capacity
+            var faceNormals = new Dictionary<long, float3>(detail.Primitives.Count);
 
             // Calculate face normals for all primitives
             foreach (var primPair in detail.Primitives)
@@ -62,25 +67,32 @@ namespace PropellerHead.Operators
         /// <returns>The calculated face normal</returns>
         private static float3 CalculateFaceNormal(Detail detail, Primitive primitive)
         {
-            var vertices = primitive.VertexOffsets.ToList();
-            if (vertices.Count < 3)
-                return float3.zero;
+            // Use enumerable directly instead of creating a list
+            using (var enumerator = primitive.VertexOffsets.GetEnumerator())
+            {
+                if (!enumerator.MoveNext()) return float3.zero;
+                var vertex0 = enumerator.Current;
+                if (!enumerator.MoveNext()) return float3.zero;
+                var vertex1 = enumerator.Current;
+                if (!enumerator.MoveNext()) return float3.zero;
+                var vertex2 = enumerator.Current;
 
-            // Get positions of the first three vertices
-            var pointOffset0 = detail.GetVertexPoint(vertices[0]);
-            var pointOffset1 = detail.GetVertexPoint(vertices[1]);
-            var pointOffset2 = detail.GetVertexPoint(vertices[2]);
+                // Get positions of the first three vertices
+                var pointOffset0 = detail.GetVertexPoint(vertex0);
+                var pointOffset1 = detail.GetVertexPoint(vertex1);
+                var pointOffset2 = detail.GetVertexPoint(vertex2);
 
-            var pos0 = detail.GetPointPos(pointOffset0);
-            var pos1 = detail.GetPointPos(pointOffset1);
-            var pos2 = detail.GetPointPos(pointOffset2);
+                var pos0 = detail.GetPointPos(pointOffset0);
+                var pos1 = detail.GetPointPos(pointOffset1);
+                var pos2 = detail.GetPointPos(pointOffset2);
 
-            // Calculate normal using cross-product
-            var edge1 = pos1 - pos0;
-            var edge2 = pos2 - pos0;
-            var normal = math.normalize(math.cross(edge1, edge2));
+                // Calculate normal using cross-product
+                var edge1 = pos1 - pos0;
+                var edge2 = pos2 - pos0;
+                var normal = math.normalize(math.cross(edge1, edge2));
 
-            return math.any(math.isfinite(normal)) ? normal : float3.zero;
+                return math.any(math.isfinite(normal)) ? normal : float3.zero;
+            }
         }
 
         /// <summary>
@@ -95,29 +107,37 @@ namespace PropellerHead.Operators
         private static float3 CalculateVertexNormal(Detail detail, long vertexOffset, long pointOffset,
             Dictionary<long, float3> faceNormals, float smoothAngle)
         {
-            var adjacentPrimitives = detail.GetPrimitivesForVertex(vertexOffset).ToList();
-            if (adjacentPrimitives.Count == 0)
+            // Reuse static list to avoid allocation
+            m_TempAdjacentPrimitives.Clear();
+            foreach (var primOffset in detail.GetPrimitivesForVertex(vertexOffset))
+            {
+                m_TempAdjacentPrimitives.Add(primOffset);
+            }
+
+            var adjacentCount = m_TempAdjacentPrimitives.Count;
+            if (adjacentCount == 0)
                 return new float3(0, 1, 0); // Default up normal
 
-            if (adjacentPrimitives.Count == 1)
+            if (adjacentCount == 1)
             {
                 // Single face - use face normal
-                return faceNormals.TryGetValue(adjacentPrimitives[0], out var normal) ? normal : new float3(0, 1, 0);
+                return faceNormals.TryGetValue(m_TempAdjacentPrimitives[0], out var normal) ? normal : new float3(0, 1, 0);
             }
 
             // Multiple faces - smooth based on angle
             var smoothNormal = float3.zero;
             var totalWeight = 0f;
 
-            foreach (var primOffset in adjacentPrimitives)
+            for (int i = 0; i < adjacentCount; i++)
             {
+                var primOffset = m_TempAdjacentPrimitives[i];
                 if (!faceNormals.TryGetValue(primOffset, out var faceNormal))
                     continue;
 
                 var weight = CalculateVertexWeightInFace(detail, vertexOffset, primOffset);
 
                 // Check if this face should be smoothed with others
-                var shouldSmooth = ShouldSmoothWithAdjacentFaces(detail, primOffset, adjacentPrimitives,
+                var shouldSmooth = ShouldSmoothWithAdjacentFaces(detail, primOffset, m_TempAdjacentPrimitives,
                     faceNormals, smoothAngle);
 
                 if (shouldSmooth)
@@ -154,19 +174,26 @@ namespace PropellerHead.Operators
             if (primitive == null)
                 return 1f;
 
-            var vertices = primitive.VertexOffsets.ToList();
-            var vertexIndex = vertices.IndexOf(vertexOffset);
+            // Reuse a static list to avoid allocation
+            m_TempVertices.Clear();
+            foreach (var vertex in primitive.VertexOffsets)
+            {
+                m_TempVertices.Add(vertex);
+            }
 
-            if (vertexIndex == -1 || vertices.Count < 3)
+            var vertexIndex = m_TempVertices.IndexOf(vertexOffset);
+            var vertexCount = m_TempVertices.Count;
+
+            if (vertexIndex == -1 || vertexCount < 3)
                 return 1f;
 
             // Calculate angle at this vertex
-            var prevIndex = (vertexIndex - 1 + vertices.Count) % vertices.Count;
-            var nextIndex = (vertexIndex + 1) % vertices.Count;
+            var prevIndex = (vertexIndex - 1 + vertexCount) % vertexCount;
+            var nextIndex = (vertexIndex + 1) % vertexCount;
 
-            var pointCurrent = detail.GetVertexPoint(vertices[vertexIndex]);
-            var pointPrev = detail.GetVertexPoint(vertices[prevIndex]);
-            var pointNext = detail.GetVertexPoint(vertices[nextIndex]);
+            var pointCurrent = detail.GetVertexPoint(m_TempVertices[vertexIndex]);
+            var pointPrev = detail.GetVertexPoint(m_TempVertices[prevIndex]);
+            var pointNext = detail.GetVertexPoint(m_TempVertices[nextIndex]);
 
             var posCurrent = detail.GetPointPos(pointCurrent);
             var posPrev = detail.GetPointPos(pointPrev);
@@ -177,7 +204,7 @@ namespace PropellerHead.Operators
 
             var angle = math.acos(math.clamp(math.dot(edge1, edge2), -1f, 1f));
 
-            // Use an angle as a weight-larger angles contribute more
+            // Use angle as weight - larger angles contribute more
             return math.max(angle, 0.1f);
         }
 
@@ -196,8 +223,10 @@ namespace PropellerHead.Operators
             if (!faceNormals.TryGetValue(primOffset, out var currentNormal))
                 return false;
 
-            foreach (var adjacentPrimOffset in adjacentPrimitives)
+            var adjacentCount = adjacentPrimitives.Count;
+            for (int i = 0; i < adjacentCount; i++)
             {
+                var adjacentPrimOffset = adjacentPrimitives[i];
                 if (adjacentPrimOffset == primOffset)
                     continue;
 
@@ -229,7 +258,10 @@ namespace PropellerHead.Operators
                 return;
 
             var faceNormals = new Dictionary<long, float3>();
-            var affectedPrimitives = new HashSet<long>();
+
+            // Reuse static list to avoid allocation
+            m_TempAffectedPrimitives.Clear();
+            var affectedPrimitivesSet = new HashSet<long>();
 
             // Find all primitives that need face normal recalculation
             foreach (var vertexOffset in vertexOffsets)
@@ -237,13 +269,18 @@ namespace PropellerHead.Operators
                 var primitives = detail.GetPrimitivesForVertex(vertexOffset);
                 foreach (var primOffset in primitives)
                 {
-                    affectedPrimitives.Add(primOffset);
+                    if (affectedPrimitivesSet.Add(primOffset))
+                    {
+                        m_TempAffectedPrimitives.Add(primOffset);
+                    }
                 }
             }
 
             // Recalculate face normals for affected primitives
-            foreach (var primOffset in affectedPrimitives)
+            var affectedCount = m_TempAffectedPrimitives.Count;
+            for (int i = 0; i < affectedCount; i++)
             {
+                var primOffset = m_TempAffectedPrimitives[i];
                 var primitive = detail.GetPrimitive(primOffset);
                 if (primitive != null)
                 {

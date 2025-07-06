@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -27,6 +28,7 @@ namespace PropellerHead
         
         // Reverse lookup for optimization
         private readonly Dictionary<long, HashSet<long>> m_PointToVertices = new();
+        private readonly Dictionary<long, HashSet<long>> m_VertexToPrimitives = new();
 
         // Cached read-only views
         private IReadOnlyDictionary<int, IAttribute> m_CachedPointAttribs;
@@ -418,6 +420,9 @@ namespace PropellerHead
                 }
                 vertices.Add(offset);
                 
+                // Initialize vertex-to-primitives lookup
+                m_VertexToPrimitives[offset] = new HashSet<long>();
+                
                 return offset;
             }
         }
@@ -441,16 +446,22 @@ namespace PropellerHead
             if (!Vertices.Contains(vertexOffset))
                 return false;
 
-            // Remove this vertex from all primitives that reference it
-            var primitivesToUpdate = m_Primitives.Where(kvp => kvp.Value.ContainsVertex(vertexOffset)).ToList();
-            foreach (var (primOffset, primitive) in primitivesToUpdate)
+            // Use optimized lookup to find primitives containing this vertex
+            if (m_VertexToPrimitives.TryGetValue(vertexOffset, out var primitiveOffsets))
             {
-                primitive.RemoveVertex(vertexOffset);
-
-                // Remove primitive if it becomes invalid
-                if (!primitive.IsValid())
+                var primList = primitiveOffsets.ToList(); // Copy to avoid modification during iteration
+                foreach (var primOffset in primList)
                 {
-                    RemovePrimInternal(primOffset);
+                    if (m_Primitives.TryGetValue(primOffset, out var primitive))
+                    {
+                        primitive.RemoveVertex(vertexOffset);
+
+                        // Remove a primitive if it becomes invalid
+                        if (!primitive.IsValid())
+                        {
+                            RemovePrimInternal(primOffset);
+                        }
+                    }
                 }
             }
 
@@ -464,6 +475,7 @@ namespace PropellerHead
             }
 
             m_VertexToPoint.Remove(vertexOffset);
+            m_VertexToPrimitives.Remove(vertexOffset);
             return Vertices.Remove(vertexOffset);
         }
 
@@ -477,7 +489,7 @@ namespace PropellerHead
             ThrowIfDisposed();
             lock (m_Lock)
             {
-                return m_VertexToPoint.TryGetValue(vertexOffset, out long pointOffset) ? pointOffset : -1;
+                return m_VertexToPoint.GetValueOrDefault(vertexOffset, -1);
             }
         }
 
@@ -492,9 +504,7 @@ namespace PropellerHead
             lock (m_Lock)
             {
                 if (m_PointToVertices.TryGetValue(pointOffset, out var vertices))
-                {
-                    return vertices.ToList(); // Return a copy
-                }
+                    return vertices;
                 return Enumerable.Empty<long>();
             }
         }
@@ -548,6 +558,14 @@ namespace PropellerHead
                     foreach (var vertexOffset in vertices)
                     {
                         prim.AddVertex(vertexOffset);
+                        
+                        // Update vertex-to-primitive lookup
+                        if (!m_VertexToPrimitives.TryGetValue(vertexOffset, out var primSet))
+                        {
+                            primSet = new HashSet<long>();
+                            m_VertexToPrimitives[vertexOffset] = primSet;
+                        }
+                        primSet.Add(offset);
                     }
 
                     m_Primitives[offset] = prim;
@@ -560,9 +578,13 @@ namespace PropellerHead
                     prim.Dispose();
                     Prims.Remove(offset);
 
-                    // Remove created vertices
+                    // Remove created vertices and their primitive associations
                     foreach (var vertexOffset in vertices)
                     {
+                        if (m_VertexToPrimitives.TryGetValue(vertexOffset, out var primSet))
+                        {
+                            primSet.Remove(offset);
+                        }
                         RemoveVertexInternal(vertexOffset);
                     }
 
@@ -590,9 +612,13 @@ namespace PropellerHead
             if (!m_Primitives.TryGetValue(primOffset, out var primitive))
                 return false;
 
-            // Remove all vertices associated with this primitive
+            // Remove all vertices associated with this primitive and update lookup
             foreach (var vertexOffset in primitive.VertexOffsets.ToList())
             {
+                if (m_VertexToPrimitives.TryGetValue(vertexOffset, out var primSet))
+                {
+                    primSet.Remove(primOffset);
+                }
                 RemoveVertexInternal(vertexOffset);
             }
 
@@ -617,7 +643,7 @@ namespace PropellerHead
         }
 
         /// <summary>
-        /// Gets all primitives that contain a specific vertex
+        /// Gets all primitives that contain a specific vertex - NOW OPTIMIZED!
         /// </summary>
         /// <param name="vertexOffset">The vertex offset</param>
         /// <returns>A collection of primitive offsets</returns>
@@ -626,9 +652,11 @@ namespace PropellerHead
             ThrowIfDisposed();
             lock (m_Lock)
             {
-                return m_Primitives.Where(kvp => kvp.Value.ContainsVertex(vertexOffset))
-                                  .Select(kvp => kvp.Key)
-                                  .ToList();
+                if (m_VertexToPrimitives.TryGetValue(vertexOffset, out var primitives))
+                {
+                    return primitives.ToList(); // Return a copy to avoid modification issues
+                }
+                return Enumerable.Empty<long>();
             }
         }
 
@@ -676,6 +704,23 @@ namespace PropellerHead
                     {
                         if (!m_VertexToPoint.TryGetValue(vertexOffset, out long mappedPoint) || 
                             mappedPoint != pointOffset)
+                            return false;
+                    }
+                }
+
+                // Check vertex-to-primitives lookup consistency
+                foreach (var kvp in m_VertexToPrimitives)
+                {
+                    var vertexOffset = kvp.Key;
+                    var primitives = kvp.Value;
+                    
+                    if (!Vertices.Contains(vertexOffset))
+                        return false;
+                    
+                    foreach (var primOffset in primitives)
+                    {
+                        if (!m_Primitives.TryGetValue(primOffset, out var primitive) ||
+                            !primitive.ContainsVertex(vertexOffset))
                             return false;
                     }
                 }
@@ -877,6 +922,7 @@ namespace PropellerHead
 
                     m_VertexToPoint.Clear();
                     m_PointToVertices.Clear();
+                    m_VertexToPrimitives.Clear(); // Clean up new lookup table
 
                     // Dispose offset maps
                     Points?.Dispose();
