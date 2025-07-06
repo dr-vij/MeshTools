@@ -8,7 +8,7 @@ namespace PropellerHead
     public static class PrimitiveDebugExtensions
     {
         /// <summary>
-        /// Creates a Unity Mesh from Detail with proper triangulation and vertex colors
+        /// Creates a Unity Mesh from Detail with proper triangulation and primitive colors
         /// </summary>
         /// <param name="detail">The detail to convert to mesh</param>
         /// <param name="fallbackColor">Fallback color if no color attribute is found</param>
@@ -26,32 +26,36 @@ namespace PropellerHead
             var allColors = new List<Color>();
             var allTriangles = new List<int>();
 
-            // Get color attribute if exists
-            var colorAttrib = GetColorAttribute(detail);
+            // Get primitive color attribute (from primitives, not points!)
+            var faceColorAttrib = GetFaceColorAttribute(detail);
 
             int vertexOffset = 0;
 
             // Process each primitive
             foreach (var primKvp in detail.Primitives)
             {
+                var primOffset = primKvp.Key;
                 var primitive = primKvp.Value;
                 var vertices = GetPrimitiveVertices(primitive, detail);
 
                 if (vertices.Count < 3)
                     continue;
 
+                // Get color for this primitive (face)
+                var primitiveColor = GetFaceColor(primOffset, detail, faceColorAttrib, fallbackColor);
+
                 // Fan triangulation from first vertex
                 for (int i = 1; i < vertices.Count - 1; i++)
                 {
                     // Add triangle vertices
                     allVertices.Add(vertices[0]);
-                    allVertices.Add(vertices[i + 1]); // Поменяли местами
-                    allVertices.Add(vertices[i]); // эти две строки
+                    allVertices.Add(vertices[i + 1]);
+                    allVertices.Add(vertices[i]);
 
-                    // Add triangle colors
-                    allColors.Add(GetVertexColor(primitive.VertexOffsets[0], detail, colorAttrib, fallbackColor));
-                    allColors.Add(GetVertexColor(primitive.VertexOffsets[i + 1], detail, colorAttrib, fallbackColor)); // И здесь тоже
-                    allColors.Add(GetVertexColor(primitive.VertexOffsets[i], detail, colorAttrib, fallbackColor));
+                    // Add the SAME primitive color to all triangle vertices
+                    allColors.Add(primitiveColor);
+                    allColors.Add(primitiveColor);
+                    allColors.Add(primitiveColor);
 
                     // Add triangle indices
                     allTriangles.Add(vertexOffset);
@@ -109,6 +113,83 @@ namespace PropellerHead
         }
 
         /// <summary>
+        /// Draws all primitives as colored wireframes using face colors
+        /// </summary>
+        /// <param name="detail">The detail to visualize primitives from</param>
+        /// <param name="fallbackColor">Fallback color if no color attribute</param>
+        public static void DrawDebugPrimitivesWithFaceColor(this Detail detail, Color fallbackColor = default)
+        {
+            if (detail == null)
+                return;
+
+            if (fallbackColor == default)
+                fallbackColor = Color.black;
+
+            var colorAttrib = GetFaceColorAttribute(detail);
+
+            // Iterate through all primitives
+            foreach (var primKvp in detail.Primitives)
+            {
+                var primOffset = primKvp.Key;
+                var primitive = primKvp.Value;
+                var vertices = GetPrimitiveVertices(primitive, detail);
+
+                if (vertices.Count < 3)
+                    continue;
+
+                // Get color for this primitive
+                var primitiveColor = GetFaceColor(primOffset, detail, colorAttrib, fallbackColor);
+                Gizmos.color = primitiveColor;
+
+                // Draw wireframe of primitive
+                for (int i = 0; i < vertices.Count; i++)
+                {
+                    var start = vertices[i];
+                    var end = vertices[(i + 1) % vertices.Count];
+                    Gizmos.DrawLine(start, end);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Draws all primitives as colored wireframes using vertex colors (legacy)
+        /// </summary>
+        /// <param name="detail">The detail to visualize primitives from</param>
+        /// <param name="fallbackColor">Fallback color if no color attribute</param>
+        public static void DrawDebugPrimitives(this Detail detail, Color fallbackColor = default)
+        {
+            if (detail == null)
+                return;
+
+            if (fallbackColor == default)
+                fallbackColor = Color.black;
+
+            var colorAttrib = GetPointColorAttribute(detail);
+
+            // Iterate through all primitives
+            foreach (var primKvp in detail.Primitives)
+            {
+                var primitive = primKvp.Value;
+                var vertices = GetPrimitiveVertices(primitive, detail);
+
+                if (vertices.Count < 3)
+                    continue;
+
+                // Use first vertex color for the whole primitive
+                var primitiveColor = GetVertexColor(primitive.VertexOffsets[0], detail, colorAttrib, fallbackColor);
+                Gizmos.color = primitiveColor;
+
+                // Draw wireframe of primitive
+                for (int i = 0; i < vertices.Count; i++)
+                {
+                    var start = vertices[i];
+                    var end = vertices[(i + 1) % vertices.Count];
+                    Gizmos.DrawLine(start, end);
+                }
+            }
+        }
+
+        /// <summary>
         /// Draws all unique points as colored spheres using Gizmos
         /// </summary>
         /// <param name="detail">The detail to visualize points from</param>
@@ -122,7 +203,7 @@ namespace PropellerHead
             if (fallbackColor == default)
                 fallbackColor = Color.black;
 
-            var colorAttrib = GetColorAttribute(detail);
+            var colorAttrib = GetPointColorAttribute(detail);
             var drawnPoints = new HashSet<long>();
 
             // Iterate through all points in detail
@@ -167,12 +248,37 @@ namespace PropellerHead
             return fallbackColor;
         }
 
-        private static Attribute<float3> GetColorAttribute(Detail detail)
+        private static Color GetFaceColor(long primOffset, Detail detail, Attribute<float3> colorAttrib, Color fallbackColor)
+        {
+            if (colorAttrib == null)
+                return fallbackColor;
+
+            if (colorAttrib.HasValue(primOffset, detail.Prims))
+            {
+                var color = colorAttrib.Get(primOffset, detail.Prims);
+                return new Color(color.x, color.y, color.z, 1f);
+            }
+
+            return fallbackColor;
+        }
+
+        private static Attribute<float3> GetPointColorAttribute(Detail detail)
         {
             var colorId = AttribID.GetId("color");
             if (colorId != -1 && detail.PointAttribs.ContainsKey(colorId))
             {
                 return detail.GetPointAttrib<float3>(colorId);
+            }
+
+            return null;
+        }
+
+        private static Attribute<float3> GetFaceColorAttribute(Detail detail)
+        {
+            var colorId = AttribID.GetId("face_color");
+            if (colorId != -1 && detail.PrimAttribs.ContainsKey(colorId))
+            {
+                return detail.GetPrimAttrib<float3>(colorId);
             }
 
             return null;
