@@ -288,6 +288,11 @@ MonoBehaviour:
   ShowVertexSpheres: 1
   ShowPrimitiveWireframes: 1
   SphereRadius: 0.05
+  NoiseScale: 1
+  WiggleAmplitude: 0.3
+  TimeMultiplier: {x: 0.8, y: 0.6, z: 0.4}
+  NoiseOffset: {x: 0.3, y: 0.9, z: 0.7}
+  Subdivisions: 4
 --- !u!4 &678556305
 Transform:
   m_ObjectHideFlags: 0
