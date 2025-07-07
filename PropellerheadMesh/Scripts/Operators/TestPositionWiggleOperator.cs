@@ -53,12 +53,12 @@ namespace PropellerHead.Operators
             }
 
             // Apply noise-based wiggling to all points
-            foreach (var pointOffset in detail.Points.GetAllOffsets())
+            foreach (var pointOffset in detail.GetAllPointOffsets())
             {
                 if (m_OriginalPositions.TryGetValue(pointOffset, out var originalPos))
                 {
                     var newPosition = CalculateWiggledPosition(originalPos, time);
-                    positionAttrib.Set(pointOffset, newPosition, detail.Points);
+                    positionAttrib.Set(pointOffset, newPosition);
                 }
             }
         }
@@ -89,7 +89,7 @@ namespace PropellerHead.Operators
                 if (m_OriginalPositions.TryGetValue(pointOffset, out var originalPos))
                 {
                     var newPosition = CalculateWiggledPosition(originalPos, time);
-                    positionAttrib.Set(pointOffset, newPosition, detail.Points);
+                    positionAttrib.Set(pointOffset, newPosition);
                 }
             }
         }
@@ -112,9 +112,9 @@ namespace PropellerHead.Operators
                 var pointOffset = kvp.Key;
                 var originalPos = kvp.Value;
                 
-                if (detail.Points.Contains(pointOffset))
+                if (positionAttrib.HasValue(pointOffset))
                 {
-                    positionAttrib.Set(pointOffset, originalPos, detail.Points);
+                    positionAttrib.Set(pointOffset, originalPos);
                 }
             }
         }
@@ -145,11 +145,11 @@ namespace PropellerHead.Operators
             if (positionAttrib == null)
                 return;
 
-            foreach (var pointOffset in detail.Points.GetAllOffsets())
+            foreach (var pointOffset in detail.GetAllPointOffsets())
             {
                 if (!m_OriginalPositions.ContainsKey(pointOffset))
                 {
-                    var originalPos = positionAttrib.Get(pointOffset, detail.Points);
+                    var originalPos = positionAttrib.Get(pointOffset);
                     m_OriginalPositions[pointOffset] = originalPos;
                 }
             }
@@ -180,28 +180,5 @@ namespace PropellerHead.Operators
             var wiggleOffset = new float3(noiseX, noiseY, noiseZ) * WiggleAmplitude;
             return originalPos + wiggleOffset;
         }
-
-        // private float3 CalculateWiggledPosition(float3 originalPos, float time)
-        // {
-        //     // Generate 3D noise for each axis
-        //     var noiseX = Mathf.PerlinNoise(
-        //         originalPos.x * NoiseScale + time * TimeMultiplier.x, 
-        //         originalPos.y * NoiseScale + time * NoiseOffset.x
-        //     ) * 2f - 1f;
-        //     
-        //     var noiseY = Mathf.PerlinNoise(
-        //         originalPos.y * NoiseScale + time * TimeMultiplier.y, 
-        //         originalPos.z * NoiseScale + time * NoiseOffset.y
-        //     ) * 2f - 1f;
-        //     
-        //     var noiseZ = Mathf.PerlinNoise(
-        //         originalPos.z * NoiseScale + time * TimeMultiplier.z, 
-        //         originalPos.x * NoiseScale + time * NoiseOffset.z
-        //     ) * 2f - 1f;
-        //
-        //     // Apply wiggle offset
-        //     var wiggleOffset = new float3(noiseX, noiseY, noiseZ) * WiggleAmplitude;
-        //     return originalPos + wiggleOffset;
-        // }
     }
 }

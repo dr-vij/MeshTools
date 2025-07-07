@@ -66,10 +66,10 @@ namespace PropellerHead
                 new(0, 0, 0) // Black
             };
 
-            var pointOffsets = m_TestDetail.Points.GetAllOffsets().ToArray();
+            var pointOffsets = m_TestDetail.GetAllPointOffsets().ToArray();
             for (var i = 0; i < pointOffsets.Length && i < vertexColors.Length; i++)
             {
-                pointColorAttrib.Set(pointOffsets[i], vertexColors[i], m_TestDetail.Points);
+                pointColorAttrib.Set(pointOffsets[i], vertexColors[i]);
             }
 
             var faceColors = new float3[]
@@ -85,11 +85,11 @@ namespace PropellerHead
             var primitiveColorAttrib = new Attribute<float3>(AttribID.Register("face_color"));
             m_TestDetail.AddPrimAttrib(primitiveColorAttrib);
 
-            var primOffsets = m_TestDetail.Prims.GetAllOffsets().ToArray();
-            for (var faceIndex = 0; faceIndex < primOffsets.Length && faceIndex < faceColors.Length; faceIndex++)
+            var primitiveOffsets = m_TestDetail.GetAllPrimOffsets().ToArray();
+            for (var faceIndex = 0; faceIndex < primitiveOffsets.Length && faceIndex < faceColors.Length; faceIndex++)
             {
-                var primOffset = primOffsets[faceIndex];
-                primitiveColorAttrib.Set(primOffset, faceColors[faceIndex], m_TestDetail.Prims);
+                var primOffset = primitiveOffsets[faceIndex];
+                primitiveColorAttrib.Set(primOffset, faceColors[faceIndex]);
 
                 Debug.Log($"Face {faceIndex} assigned color {faceColors[faceIndex]} at primitive offset {primOffset}");
             }
@@ -183,19 +183,14 @@ namespace PropellerHead
                 return;
 
             var vertices = mesh.vertices;
-            var vertexCount = Mathf.Min(vertices.Length, m_TestDetail.Points.Count);
-            var pointOffsets = m_TestDetail.Points.GetAllOffsets().ToArray();
+            var pointOffsets = m_TestDetail.GetAllPointOffsets().ToArray();
+            var vertexCount = Mathf.Min(vertices.Length, pointOffsets.Length);
 
             for (int i = 0; i < vertexCount; i++)
             {
-                if (i < pointOffsets.Length)
-                {
-                    var pointOffset = pointOffsets[i];
-                    var position = positionAttrib.Get(pointOffset, m_TestDetail.Points);
-                    vertices[i] = position;
-                }
-                else
-                    Debug.LogWarning($"Vertex index {i} is out of range for point offsets.");
+                var pointOffset = pointOffsets[i];
+                var position = positionAttrib.Get(pointOffset);
+                vertices[i] = position;
             }
 
             mesh.vertices = vertices;

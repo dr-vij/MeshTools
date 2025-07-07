@@ -55,7 +55,7 @@ namespace PropellerHead.Operators
                 var vertexNormal = CalculateVertexNormal(detail, vertexOffset, pointOffset,
                     faceNormals, smoothAngle);
 
-                normalAttrib.Set(vertexOffset, vertexNormal, detail.Vertices);
+                normalAttrib.Set(vertexOffset, vertexNormal);
             }
         }
 
@@ -297,7 +297,7 @@ namespace PropellerHead.Operators
                     var vertexNormal = CalculateVertexNormal(detail, vertexOffset, pointOffset,
                         faceNormals, smoothAngle);
 
-                    normalAttrib.Set(vertexOffset, vertexNormal, detail.Vertices);
+                    normalAttrib.Set(vertexOffset, vertexNormal);
                 }
             }
         }
@@ -324,7 +324,7 @@ namespace PropellerHead.Operators
                 return float3.zero;
 
             var normalAttrib = detail.GetVertexAttrib<float3>(AttribID.Normal);
-            return normalAttrib?.Get(vertexOffset, detail.Vertices) ?? float3.zero;
+            return normalAttrib?.Get(vertexOffset) ?? float3.zero;
         }
     }
 }

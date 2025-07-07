@@ -168,15 +168,11 @@ namespace PropellerHead
             var colorAttrib = GetPointColorAttribute(detail);
             var drawnPoints = new HashSet<long>();
 
-            // Iterate through all points in detail
-            foreach (var pointKvp in detail.Points.GetAllOffsets())
+            // Iterate through all points in detail using the new API
+            foreach (var pointOffset in detail.GetAllPointOffsets())
             {
-                var pointOffset = pointKvp;
-
-                if (drawnPoints.Contains(pointOffset))
+                if (!drawnPoints.Add(pointOffset))
                     continue;
-
-                drawnPoints.Add(pointOffset);
 
                 var position = detail.GetPointPos(pointOffset);
                 var color = GetPointColor(pointOffset, detail, colorAttrib, fallbackColor);
@@ -201,9 +197,10 @@ namespace PropellerHead
             if (colorAttrib == null)
                 return fallbackColor;
 
-            if (colorAttrib.HasValue(pointOffset, detail.Points))
+            // Use the new API - check if attribute has value at this offset
+            if (colorAttrib.HasValue(pointOffset))
             {
-                var color = colorAttrib.Get(pointOffset, detail.Points);
+                var color = colorAttrib.Get(pointOffset);
                 return new Color(color.x, color.y, color.z, 1f);
             }
 
@@ -215,9 +212,10 @@ namespace PropellerHead
             if (colorAttrib == null)
                 return fallbackColor;
 
-            if (colorAttrib.HasValue(primOffset, detail.Prims))
+            // Use the new API - check if attribute has value at this offset
+            if (colorAttrib.HasValue(primOffset))
             {
-                var color = colorAttrib.Get(primOffset, detail.Prims);
+                var color = colorAttrib.Get(primOffset);
                 return new Color(color.x, color.y, color.z, 1f);
             }
 

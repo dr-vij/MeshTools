@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace PropellerHead
@@ -13,69 +12,29 @@ namespace PropellerHead
         Type DataType { get; }
         int ID { get; }
         string Name { get; }
-        object GetValue(long offset, OffsetMap map);
-        void SetValue(long offset, object value, OffsetMap map);
-        bool HasValue(long offset, OffsetMap map);
-        void RemoveValue(long offset, OffsetMap map);
+        object GetValue(long offset);
+        void SetValue(long offset, object value);
+        bool HasValue(long offset);
+        void RemoveValue(long offset);
         int AllocatedCount { get; }
-        AttributeMetrics GetMetrics();
     }
 
     /// <summary>
-    /// High-performance generic attribute storage with optimized sparse data support
-    /// Features:
-    /// - Segmented storage for better cache locality
-    /// - Optimized index shifting algorithm
-    /// - Memory pooling for reduced GC pressure
+    /// Simple generic attribute storage using direct offset mapping
     /// </summary>
     /// <typeparam name="T">The type of data stored in this attribute</typeparam>
     public class Attribute<T> : IAttribute
     {
-        private const int SEGMENT_SIZE = 1024;
-        private const int SEGMENT_MASK = SEGMENT_SIZE - 1;
-        
-        private readonly Dictionary<int, T[]> m_Segments = new Dictionary<int, T[]>();
-        private readonly BitArray m_SetBits = new BitArray();
+        private readonly Dictionary<long, T> m_Values = new();
         private readonly T m_DefaultValue;
         private readonly string m_Name;
         private bool m_Disposed = false;
-        
-        // Performance counters
-        private long m_GetCount;
-        private long m_SetCount;
-        private long m_RemoveCount;
-        private long m_MemoryAllocated;
 
         public Type DataType => typeof(T);
         public int ID { get; private set; }
         public string Name => m_Name;
+        public int AllocatedCount => m_Values.Count;
 
-        /// <summary>
-        /// Gets the number of explicitly set values
-        /// </summary>
-        public int AllocatedCount => m_SetBits.Count;
-
-        /// <summary>
-        /// Gets performance metrics for monitoring
-        /// </summary>
-        public AttributeMetrics GetMetrics()
-        {
-            return new AttributeMetrics(
-                m_SetBits.Count,
-                m_Segments.Count,
-                m_GetCount,
-                m_SetCount,
-                m_RemoveCount,
-                m_MemoryAllocated,
-                typeof(T).Name
-            );
-        }
-
-        /// <summary>
-        /// Creates a new attribute with the specified ID and default value
-        /// </summary>
-        /// <param name="id">The attribute ID</param>
-        /// <param name="defaultVal">The default value to return for unset entries</param>
         public Attribute(int id, T defaultVal = default(T))
         {
             if (id < 0)
@@ -86,245 +45,58 @@ namespace PropellerHead
             m_Name = AttribID.GetName(id) ?? $"UnknownAttribute_{id}";
         }
 
-        /// <summary>
-        /// Gets the value for the specified offset
-        /// Performance: O(1)
-        /// </summary>
-        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Get(long offset, OffsetMap map)
-        {
-            if (map == null)
-                throw new ArgumentNullException(nameof(map));
-
-            ThrowIfDisposed();
-
-            int index = map.GetIndex(offset);
-            if (index < 0)
-                return m_DefaultValue;
-
-            m_GetCount++;
-
-            // Check if bit is set
-            if (!m_SetBits.Get(index))
-                return m_DefaultValue;
-
-            int segmentIndex = index >> 10; // Divide by 1024
-            int elementIndex = index & SEGMENT_MASK;
-
-            if (m_Segments.TryGetValue(segmentIndex, out T[] segment))
-            {
-                return segment[elementIndex];
-            }
-
-            return m_DefaultValue;
-        }
-
-        /// <summary>
-        /// Sets the value for the specified offset
-        /// Performance: O(1) with optimized memory allocation
-        /// </summary>
-        public void Set(long offset, T value, OffsetMap map)
-        {
-            if (map == null)
-                throw new ArgumentNullException(nameof(map));
-
-            ThrowIfDisposed();
-
-            int index = map.GetIndex(offset);
-            if (index < 0)
-                throw new ArgumentException($"Offset {offset} is not valid in the provided OffsetMap", nameof(offset));
-
-            m_SetCount++;
-
-            bool isDefault = EqualityComparer<T>.Default.Equals(value, m_DefaultValue);
-            
-            if (isDefault)
-            {
-                // Remove entry if setting to default value
-                m_SetBits.Set(index, false);
-                return;
-            }
-
-            // Ensure segment exists
-            int segmentIndex = index >> 10;
-            int elementIndex = index & SEGMENT_MASK;
-
-            if (!m_Segments.TryGetValue(segmentIndex, out T[] segment))
-            {
-                segment = new T[SEGMENT_SIZE];
-                m_Segments[segmentIndex] = segment;
-                
-                m_MemoryAllocated += SEGMENT_SIZE * GetElementSize();
-            }
-
-            segment[elementIndex] = value;
-            m_SetBits.Set(index, true);
-        }
-
-        /// <summary>
-        /// Checks if a value is explicitly set for the specified offset
-        /// Performance: O(1)
-        /// </summary>
-        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool HasValue(long offset, OffsetMap map)
-        {
-            if (map == null)
-                throw new ArgumentNullException(nameof(map));
-
-            ThrowIfDisposed();
-
-            int index = map.GetIndex(offset);
-            return index >= 0 && m_SetBits.Get(index);
-        }
-
-        /// <summary>
-        /// Removes the value for the specified offset, reverting to default
-        /// Performance: O(1)
-        /// </summary>
-        public void RemoveValue(long offset, OffsetMap map)
-        {
-            if (map == null)
-                throw new ArgumentNullException(nameof(map));
-
-            ThrowIfDisposed();
-
-            int index = map.GetIndex(offset);
-            if (index >= 0)
-            {
-                m_RemoveCount++;
-                m_SetBits.Set(index, false);
-            }
-        }
-
-        /// <summary>
-        /// Optimized cleanup when an offset is removed from the map
-        /// Performance: O(1) with batch processing
-        /// </summary>
-        internal void OnOffsetRemoved(long removedOffset, int removedIndex)
-        {
-            // Clear the bit for the removed index
-            m_SetBits.Set(removedIndex, false);
-            
-            // Efficiently shift bits down using BitArray operations
-            m_SetBits.ShiftLeft(removedIndex);
-            
-            // Shift segment data efficiently
-            ShiftSegmentData(removedIndex);
-        }
-
-        private void ShiftSegmentData(int removedIndex)
-        {
-            int startSegment = removedIndex >> 10;
-            int startElement = removedIndex & SEGMENT_MASK;
-            
-            foreach (var kvp in m_Segments)
-            {
-                int segmentIndex = kvp.Key;
-                T[] segment = kvp.Value;
-                
-                if (segmentIndex > startSegment)
-                {
-                    // Shift entire segment
-                    int sourceIndex = segmentIndex << 10;
-                    int targetIndex = sourceIndex - 1;
-                    int targetSegment = targetIndex >> 10;
-                    int targetElement = targetIndex & SEGMENT_MASK;
-                    
-                    if (targetSegment != segmentIndex)
-                    {
-                        // Need to move data to different segment
-                        EnsureSegmentExists(targetSegment);
-                        Array.Copy(segment, 0, m_Segments[targetSegment], targetElement, 
-                                  Math.Min(SEGMENT_SIZE, SEGMENT_SIZE - targetElement));
-                    }
-                }
-                else if (segmentIndex == startSegment)
-                {
-                    // Shift within segment
-                    Array.Copy(segment, startElement + 1, segment, startElement, 
-                              SEGMENT_SIZE - startElement - 1);
-                }
-            }
-        }
-
-        private void EnsureSegmentExists(int segmentIndex)
-        {
-            if (!m_Segments.ContainsKey(segmentIndex))
-            {
-                T[] segment = new T[SEGMENT_SIZE];
-                m_Segments[segmentIndex] = segment;
-                m_MemoryAllocated += SEGMENT_SIZE * GetElementSize();
-            }
-        }
-
-        private int GetElementSize()
-        {
-            // Approximate size calculation for Unity compatibility
-            if (typeof(T) == typeof(bool)) return 1;
-            if (typeof(T) == typeof(byte)) return 1;
-            if (typeof(T) == typeof(short)) return 2;
-            if (typeof(T) == typeof(int)) return 4;
-            if (typeof(T) == typeof(long)) return 8;
-            if (typeof(T) == typeof(float)) return 4;
-            if (typeof(T) == typeof(double)) return 8;
-            return IntPtr.Size; // Reference types
-        }
-
-        /// <summary>
-        /// Compacts the internal storage by removing empty segments
-        /// </summary>
-        public void Compact()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T Get(long offset)
         {
             ThrowIfDisposed();
-            
-            var emptySegments = new List<int>();
-            
-            foreach (var kvp in m_Segments)
+            return m_Values.GetValueOrDefault(offset, m_DefaultValue);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Set(long offset, T value)
+        {
+            ThrowIfDisposed();
+
+            if (EqualityComparer<T>.Default.Equals(value, m_DefaultValue))
             {
-                int segmentIndex = kvp.Key;
-                int startBit = segmentIndex << 10;
-                int endBit = Math.Min(startBit + SEGMENT_SIZE, m_SetBits.Length);
-                
-                bool hasData = false;
-                for (int i = startBit; i < endBit; i++)
-                {
-                    if (m_SetBits.Get(i))
-                    {
-                        hasData = true;
-                        break;
-                    }
-                }
-                
-                if (!hasData)
-                {
-                    emptySegments.Add(segmentIndex);
-                }
+                m_Values.Remove(offset);
             }
-            
-            foreach (int segmentIndex in emptySegments)
+            else
             {
-                m_Segments.Remove(segmentIndex);
-                m_MemoryAllocated -= SEGMENT_SIZE * GetElementSize();
+                m_Values[offset] = value;
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool HasValue(long offset)
+        {
+            ThrowIfDisposed();
+            return m_Values.ContainsKey(offset);
+        }
+
+        public void RemoveValue(long offset)
+        {
+            ThrowIfDisposed();
+            m_Values.Remove(offset);
         }
 
         // IAttribute interface implementation
-        public object GetValue(long offset, OffsetMap map) => Get(offset, map);
+        public object GetValue(long offset) => Get(offset);
 
-        public void SetValue(long offset, object value, OffsetMap map)
+        public void SetValue(long offset, object value)
         {
             if (value == null)
             {
                 if (!typeof(T).IsClass && Nullable.GetUnderlyingType(typeof(T)) == null)
                     throw new ArgumentNullException(nameof(value), $"Cannot set null value for non-nullable type {typeof(T)}");
                 
-                Set(offset, default(T), map);
+                Set(offset, default(T));
                 return;
             }
 
             try
             {
-                Set(offset, (T)value, map);
+                Set(offset, (T)value);
             }
             catch (InvalidCastException)
             {
@@ -332,7 +104,6 @@ namespace PropellerHead
             }
         }
 
-        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ThrowIfDisposed()
         {
             if (m_Disposed)
@@ -343,132 +114,8 @@ namespace PropellerHead
         {
             if (m_Disposed) return;
             
-            m_Segments.Clear();
-            m_SetBits.Dispose();
+            m_Values.Clear();
             m_Disposed = true;
-        }
-    }
-
-    /// <summary>
-    /// Performance metrics for Attribute monitoring
-    /// </summary>
-    public struct AttributeMetrics
-    {
-        public int AllocatedCount { get; private set; }
-        public int SegmentCount { get; private set; }
-        public long GetCount { get; private set; }
-        public long SetCount { get; private set; }
-        public long RemoveCount { get; private set; }
-        public long MemoryAllocated { get; private set; }
-        public string DataType { get; private set; }
-
-        public AttributeMetrics(int allocatedCount, int segmentCount, long getCount, long setCount, 
-                               long removeCount, long memoryAllocated, string dataType)
-        {
-            AllocatedCount = allocatedCount;
-            SegmentCount = segmentCount;
-            GetCount = getCount;
-            SetCount = setCount;
-            RemoveCount = removeCount;
-            MemoryAllocated = memoryAllocated;
-            DataType = dataType;
-        }
-        
-        public override string ToString()
-        {
-            return $"Type: {DataType}, Allocated: {AllocatedCount}, Segments: {SegmentCount}, " +
-                   $"Gets: {GetCount}, Sets: {SetCount}, Removes: {RemoveCount}, Memory: {MemoryAllocated}";
-        }
-    }
-
-    /// <summary>
-    /// High-performance bit array
-    /// </summary>
-    internal class BitArray : IDisposable
-    {
-        private long[] m_Bits;
-        private int m_Count;
-
-        public int Length => m_Bits.Length * 64;
-        public int Count => m_Count;
-
-        public BitArray(int capacity = 1024)
-        {
-            int longCount = (capacity + 63) / 64;
-            m_Bits = new long[longCount];
-        }
-
-        public bool Get(int index)
-        {
-            if (index < 0 || index >= Length) return false;
-            
-            int longIndex = index / 64;
-            int bitIndex = index % 64;
-            
-            return (m_Bits[longIndex] & (1L << bitIndex)) != 0;
-        }
-
-        public void Set(int index, bool value)
-        {
-            if (index < 0) return;
-            
-            EnsureCapacity(index + 1);
-            
-            int longIndex = index / 64;
-            int bitIndex = index % 64;
-            long mask = 1L << bitIndex;
-            
-            bool wasSet = (m_Bits[longIndex] & mask) != 0;
-            
-            if (value)
-            {
-                m_Bits[longIndex] |= mask;
-                if (!wasSet) m_Count++;
-            }
-            else
-            {
-                m_Bits[longIndex] &= ~mask;
-                if (wasSet) m_Count--;
-            }
-        }
-
-        public void ShiftLeft(int fromIndex)
-        {
-            int longIndex = fromIndex / 64;
-            int bitIndex = fromIndex % 64;
-            
-            // Shift within the same long
-            if (bitIndex > 0)
-            {
-                long mask = (1L << bitIndex) - 1;
-                long lower = m_Bits[longIndex] & mask;
-                long upper = m_Bits[longIndex] & ~mask;
-                m_Bits[longIndex] = lower | (upper >> 1);
-            }
-            
-            // Shift remaining longs
-            for (int i = longIndex + 1; i < m_Bits.Length; i++)
-            {
-                if (i > longIndex + 1)
-                {
-                    m_Bits[i - 1] |= (m_Bits[i] & 1) << 63;
-                }
-                m_Bits[i] >>= 1;
-            }
-        }
-
-        private void EnsureCapacity(int minCapacity)
-        {
-            int requiredLongs = (minCapacity + 63) / 64;
-            if (requiredLongs > m_Bits.Length)
-            {
-                Array.Resize(ref m_Bits, Math.Max(requiredLongs, m_Bits.Length * 2));
-            }
-        }
-
-        public void Dispose()
-        {
-            m_Bits = null;
         }
     }
 }

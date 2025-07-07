@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -13,10 +12,6 @@ namespace PropellerHead
     public class Detail : IDisposable
     {
         private bool m_Disposed = false;
-
-        public OffsetMap Points { get; } = new();
-        public OffsetMap Vertices { get; } = new();
-        public OffsetMap Prims { get; } = new();
 
         private readonly Dictionary<int, IAttribute> m_PointAttribs = new();
         private readonly Dictionary<int, IAttribute> m_VertexAttribs = new();
@@ -35,6 +30,16 @@ namespace PropellerHead
         private IReadOnlyDictionary<int, IAttribute> m_CachedPrimAttribs;
         private IReadOnlyDictionary<long, Primitive> m_CachedPrimitives;
         private IReadOnlyDictionary<long, long> m_CachedVertexToPoint;
+
+        // Offset generators
+        private long m_NextPointOffset = 1;
+        private long m_NextVertexOffset = 1;
+        private long m_NextPrimOffset = 1;
+
+        // Collections for tracking allocated offsets
+        private readonly HashSet<long> m_PointOffsets = new();
+        private readonly HashSet<long> m_VertexOffsets = new();
+        private readonly HashSet<long> m_PrimOffsets = new();
 
         /// <summary>
         /// Gets a read-only view of the point attributes
@@ -95,12 +100,41 @@ namespace PropellerHead
         {
             // Initialize with position attribute
             AddPointAttrib(new Attribute<float3>(AttribID.Position, float3.zero));
-
-            // Subscribe to offset removal events for cleanup
-            Points.OnOffsetRemoved += OnPointOffsetRemoved;
-            Vertices.OnOffsetRemoved += OnVertexOffsetRemoved;
-            Prims.OnOffsetRemoved += OnPrimOffsetRemoved;
         }
+
+        #region Offset Access Methods
+
+        /// <summary>
+        /// Gets all point offsets
+        /// </summary>
+        /// <returns>A collection of all point offsets</returns>
+        public IEnumerable<long> GetAllPointOffsets()
+        {
+            ThrowIfDisposed();
+            return m_PointOffsets;
+        }
+
+        /// <summary>
+        /// Gets all vertex offsets
+        /// </summary>
+        /// <returns>A collection of all vertex offsets</returns>
+        public IEnumerable<long> GetAllVertexOffsets()
+        {
+            ThrowIfDisposed();
+            return m_VertexOffsets;
+        }
+
+        /// <summary>
+        /// Gets all primitive offsets
+        /// </summary>
+        /// <returns>A collection of all primitive offsets</returns>
+        public IEnumerable<long> GetAllPrimOffsets()
+        {
+            ThrowIfDisposed();
+            return m_PrimOffsets;
+        }
+
+        #endregion
 
         #region Attribute Management
 
@@ -280,9 +314,11 @@ namespace PropellerHead
 
             ThrowIfDisposed();
             
-            long offset = Points.Allocate();
+            long offset = m_NextPointOffset++;
+            m_PointOffsets.Add(offset);
+            
             var posAttrib = GetPointAttrib<float3>(AttribID.Position);
-            posAttrib?.Set(offset, pos, Points);
+            posAttrib?.Set(offset, pos);
             
             // Initialize reverse lookup
             m_PointToVertices[offset] = new HashSet<long>();
@@ -299,7 +335,7 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            if (!Points.Contains(pointOffset))
+            if (!m_PointOffsets.Contains(pointOffset))
                 return false;
 
             // Use reverse lookup for efficient vertex removal
@@ -312,8 +348,15 @@ namespace PropellerHead
                 }
             }
 
+            // Remove from all point attributes
+            foreach (var attr in m_PointAttribs.Values)
+            {
+                attr.RemoveValue(pointOffset);
+            }
+
+            m_PointOffsets.Remove(pointOffset);
             m_PointToVertices.Remove(pointOffset);
-            return Points.Remove(pointOffset);
+            return true;
         }
 
         /// <summary>
@@ -326,7 +369,7 @@ namespace PropellerHead
             ThrowIfDisposed();
             
             var posAttrib = GetPointAttrib<float3>(AttribID.Position);
-            return posAttrib?.Get(offset, Points) ?? float3.zero;
+            return posAttrib?.Get(offset) ?? float3.zero;
         }
 
         /// <summary>
@@ -342,11 +385,11 @@ namespace PropellerHead
 
             ThrowIfDisposed();
             
-            if (!Points.Contains(offset))
+            if (!m_PointOffsets.Contains(offset))
                 throw new ArgumentException($"Point offset {offset} does not exist", nameof(offset));
 
             var posAttrib = GetPointAttrib<float3>(AttribID.Position);
-            posAttrib?.Set(offset, pos, Points);
+            posAttrib?.Set(offset, pos);
         }
 
         #endregion
@@ -363,10 +406,11 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            if (!Points.Contains(pointOffset))
+            if (!m_PointOffsets.Contains(pointOffset))
                 throw new ArgumentException($"Point offset {pointOffset} does not exist", nameof(pointOffset));
 
-            long offset = Vertices.Allocate();
+            long offset = m_NextVertexOffset++;
+            m_VertexOffsets.Add(offset);
             m_VertexToPoint[offset] = pointOffset;
             
             // Update reverse lookup
@@ -397,7 +441,7 @@ namespace PropellerHead
 
         private bool RemoveVertexInternal(long vertexOffset)
         {
-            if (!Vertices.Contains(vertexOffset))
+            if (!m_VertexOffsets.Contains(vertexOffset))
                 return false;
 
             // Use optimized lookup to find primitives containing this vertex
@@ -428,9 +472,16 @@ namespace PropellerHead
                 }
             }
 
+            // Remove from all vertex attributes
+            foreach (var attr in m_VertexAttribs.Values)
+            {
+                attr.RemoveValue(vertexOffset);
+            }
+
+            m_VertexOffsets.Remove(vertexOffset);
             m_VertexToPoint.Remove(vertexOffset);
             m_VertexToPrimitives.Remove(vertexOffset);
-            return Vertices.Remove(vertexOffset);
+            return true;
         }
 
         /// <summary>
@@ -487,19 +538,18 @@ namespace PropellerHead
             // Validate all point offsets exist
             foreach (long pointOffset in pointOffsets)
             {
-                if (!Points.Contains(pointOffset))
+                if (!m_PointOffsets.Contains(pointOffset))
                     throw new ArgumentException($"Point offset {pointOffset} does not exist", nameof(pointOffsets));
             }
 
             // Create vertices for each point
-            // TODO: What if I want to make a sphere? should I calculate normals or maybe share a vertex?
-            // I do not fucking know now
             var vertices = new List<long>();
             foreach (long pointOffset in pointOffsets)
                 vertices.Add(AddVertex(pointOffset));
 
             // Create primitive
-            long offset = Prims.Allocate();
+            long offset = m_NextPrimOffset++;
+            m_PrimOffsets.Add(offset);
             var prim = new Primitive();
 
             try
@@ -525,7 +575,7 @@ namespace PropellerHead
             {
                 // Cleanup on failure
                 prim.Dispose();
-                Prims.Remove(offset);
+                m_PrimOffsets.Remove(offset);
 
                 // Remove created vertices and their primitive associations
                 foreach (var vertexOffset in vertices)
@@ -555,7 +605,7 @@ namespace PropellerHead
 
         private bool RemovePrimInternal(long primOffset)
         {
-            if (!m_Primitives.TryGetValue(primOffset, out var primitive))
+            if (!m_PrimOffsets.Contains(primOffset) || !m_Primitives.TryGetValue(primOffset, out var primitive))
                 return false;
 
             // Remove all vertices associated with this primitive and update lookup
@@ -568,10 +618,17 @@ namespace PropellerHead
                 RemoveVertexInternal(vertexOffset);
             }
 
+            // Remove from all primitive attributes
+            foreach (var attr in m_PrimAttribs.Values)
+            {
+                attr.RemoveValue(primOffset);
+            }
+
             primitive.Dispose();
             m_Primitives.Remove(primOffset);
+            m_PrimOffsets.Remove(primOffset);
             InvalidateCache();
-            return Prims.Remove(primOffset);
+            return true;
         }
 
         /// <summary>
@@ -587,7 +644,7 @@ namespace PropellerHead
         }
 
         /// <summary>
-        /// Gets all primitives that contain a specific vertex - NOW OPTIMIZED!
+        /// Gets all primitives that contain a specific vertex
         /// </summary>
         /// <param name="vertexOffset">The vertex offset</param>
         /// <returns>A collection of primitive offsets</returns>
@@ -617,7 +674,7 @@ namespace PropellerHead
             // Check that all vertex-to-point mappings are valid
             foreach (var kvp in m_VertexToPoint)
             {
-                if (!Points.Contains(kvp.Value))
+                if (!m_PointOffsets.Contains(kvp.Value))
                     return false;
             }
 
@@ -627,7 +684,7 @@ namespace PropellerHead
                 var primitive = kvp.Value;
                 foreach (var vertexOffset in primitive.VertexOffsets)
                 {
-                    if (!Vertices.Contains(vertexOffset))
+                    if (!m_VertexOffsets.Contains(vertexOffset))
                         return false;
                 }
             }
@@ -638,7 +695,7 @@ namespace PropellerHead
                 var pointOffset = kvp.Key;
                 var vertices = kvp.Value;
                 
-                if (!Points.Contains(pointOffset))
+                if (!m_PointOffsets.Contains(pointOffset))
                     return false;
                 
                 foreach (var vertexOffset in vertices)
@@ -655,7 +712,7 @@ namespace PropellerHead
                 var vertexOffset = kvp.Key;
                 var primitives = kvp.Value;
                 
-                if (!Vertices.Contains(vertexOffset))
+                if (!m_VertexOffsets.Contains(vertexOffset))
                     return false;
                 
                 foreach (var primOffset in primitives)
@@ -677,7 +734,7 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            return (Points.Count, Vertices.Count, Prims.Count);
+            return (m_PointOffsets.Count, m_VertexOffsets.Count, m_PrimOffsets.Count);
         }
 
         /// <summary>
@@ -690,9 +747,9 @@ namespace PropellerHead
             
             var stats = new DetailStatistics
             {
-                PointCount = Points.Count,
-                VertexCount = Vertices.Count,
-                PrimitiveCount = Prims.Count,
+                PointCount = m_PointOffsets.Count,
+                VertexCount = m_VertexOffsets.Count,
+                PrimitiveCount = m_PrimOffsets.Count,
                 PointAttributeCount = m_PointAttribs.Count,
                 VertexAttributeCount = m_VertexAttribs.Count,
                 PrimitiveAttributeCount = m_PrimAttribs.Count
@@ -715,69 +772,6 @@ namespace PropellerHead
             }
 
             return stats;
-        }
-
-        /// <summary>
-        /// Compacts all attribute storage to optimize memory usage
-        /// </summary>
-        public void CompactAttributes()
-        {
-            ThrowIfDisposed();
-            
-            foreach (var attr in m_PointAttribs.Values.OfType<Attribute<object>>())
-            {
-                attr.Compact();
-            }
-            
-            foreach (var attr in m_VertexAttribs.Values.OfType<Attribute<object>>())
-            {
-                attr.Compact();
-            }
-            
-            foreach (var attr in m_PrimAttribs.Values.OfType<Attribute<object>>())
-            {
-                attr.Compact();
-            }
-        }
-
-        #endregion
-
-        #region Event Handlers
-
-        private void OnPointOffsetRemoved(long pointOffset, int removedIndex)
-        {
-            // Clean up attributes
-            foreach (var attr in m_PointAttribs.Values)
-            {
-                if (attr is Attribute<object> typedAttr)
-                {
-                    typedAttr.OnOffsetRemoved(pointOffset, removedIndex);
-                }
-            }
-        }
-
-        private void OnVertexOffsetRemoved(long vertexOffset, int removedIndex)
-        {
-            // Clean up attributes
-            foreach (var attr in m_VertexAttribs.Values)
-            {
-                if (attr is Attribute<object> typedAttr)
-                {
-                    typedAttr.OnOffsetRemoved(vertexOffset, removedIndex);
-                }
-            }
-        }
-
-        private void OnPrimOffsetRemoved(long primOffset, int removedIndex)
-        {
-            // Clean up attributes
-            foreach (var attr in m_PrimAttribs.Values)
-            {
-                if (attr is Attribute<object> typedAttr)
-                {
-                    typedAttr.OnOffsetRemoved(primOffset, removedIndex);
-                }
-            }
         }
 
         #endregion
@@ -812,11 +806,6 @@ namespace PropellerHead
         {
             if (!m_Disposed)
             {
-                // Unsubscribe from events
-                Points.OnOffsetRemoved -= OnPointOffsetRemoved;
-                Vertices.OnOffsetRemoved -= OnVertexOffsetRemoved;
-                Prims.OnOffsetRemoved -= OnPrimOffsetRemoved;
-
                 // Dispose all primitives
                 foreach (var primitive in m_Primitives.Values)
                 {
@@ -847,10 +836,9 @@ namespace PropellerHead
                 m_PointToVertices.Clear();
                 m_VertexToPrimitives.Clear();
 
-                // Dispose offset maps
-                Points?.Dispose();
-                Vertices?.Dispose();
-                Prims?.Dispose();
+                m_PointOffsets.Clear();
+                m_VertexOffsets.Clear();
+                m_PrimOffsets.Clear();
 
                 InvalidateCache();
                 m_Disposed = true;
