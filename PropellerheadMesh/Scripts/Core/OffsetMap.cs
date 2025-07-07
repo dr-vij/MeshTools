@@ -1,27 +1,22 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PropellerHead
 {
     /// <summary>
     /// Manages offset-to-index mapping for sparse data structures with efficient removal
     /// Performance: O(1) allocate, O(1) remove, O(1) lookup
-    /// Thread-safe: All operations are thread-safe
     /// Memory: Compact storage with minimal overhead
+    /// Single-threaded: Designed for Unity's single-threaded main loop
     /// </summary>
     public class OffsetMap : IDisposable
     {
         private readonly List<long> m_IndexToOffset = new List<long>();
         private readonly Dictionary<long, int> m_OffsetToIndex = new Dictionary<long, int>();
-        private readonly ConcurrentQueue<OffsetRemovedEventData> m_EventQueue = new ConcurrentQueue<OffsetRemovedEventData>();
-        private readonly ReaderWriterLockSlim m_Lock = new ReaderWriterLockSlim();
+        private readonly List<OffsetRemovedEventData> m_EventBuffer = new List<OffsetRemovedEventData>();
         private long m_NextOffset;
         private bool m_Disposed = false;
-        private volatile bool m_EventProcessingEnabled = true;
         
         // Performance counters
         private long m_AllocateCount;
@@ -30,7 +25,6 @@ namespace PropellerHead
 
         /// <summary>
         /// Event fired when an offset is removed, providing both the offset and its old index
-        /// Events are fired asynchronously to prevent deadlocks
         /// </summary>
         public event Action<long, int> OnOffsetRemoved;
 
@@ -39,21 +33,13 @@ namespace PropellerHead
         /// </summary>
         public OffsetMapMetrics GetMetrics()
         {
-            m_Lock.EnterReadLock();
-            try
-            {
-                return new OffsetMapMetrics(
-                    m_IndexToOffset.Count,
-                    Interlocked.Read(ref m_AllocateCount),
-                    Interlocked.Read(ref m_RemoveCount),
-                    Interlocked.Read(ref m_LookupCount),
-                    m_EventQueue.Count
-                );
-            }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+            return new OffsetMapMetrics(
+                m_IndexToOffset.Count,
+                m_AllocateCount,
+                m_RemoveCount,
+                m_LookupCount,
+                m_EventBuffer.Count
+            );
         }
 
         /// <summary>
@@ -65,21 +51,13 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            m_Lock.EnterWriteLock();
-            try
-            {
-                long offset = m_NextOffset++;
-                int index = m_IndexToOffset.Count;
-                m_IndexToOffset.Add(offset);
-                m_OffsetToIndex[offset] = index;
-                
-                Interlocked.Increment(ref m_AllocateCount);
-                return offset;
-            }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-            }
+            long offset = m_NextOffset++;
+            int index = m_IndexToOffset.Count;
+            m_IndexToOffset.Add(offset);
+            m_OffsetToIndex[offset] = index;
+            
+            m_AllocateCount++;
+            return offset;
         }
 
         /// <summary>
@@ -92,46 +70,30 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            OffsetRemovedEventData eventData = default(OffsetRemovedEventData);
-            bool hasEvent = false;
+            if (!m_OffsetToIndex.TryGetValue(offset, out int removedIndex))
+                return false;
+
+            int lastIndex = m_IndexToOffset.Count - 1;
             
-            m_Lock.EnterWriteLock();
-            try
+            // Store event data
+            m_EventBuffer.Add(new OffsetRemovedEventData(offset, removedIndex));
+
+            // Compact the arrays
+            if (removedIndex != lastIndex)
             {
-                if (!m_OffsetToIndex.TryGetValue(offset, out int removedIndex))
-                    return false;
-
-                int lastIndex = m_IndexToOffset.Count - 1;
-                
-                // Prepare event data while holding lock
-                eventData = new OffsetRemovedEventData(offset, removedIndex);
-                hasEvent = true;
-
-                // Compact the arrays
-                if (removedIndex != lastIndex)
-                {
-                    long lastOffset = m_IndexToOffset[lastIndex];
-                    m_IndexToOffset[removedIndex] = lastOffset;
-                    m_OffsetToIndex[lastOffset] = removedIndex;
-                }
-
-                m_IndexToOffset.RemoveAt(lastIndex);
-                m_OffsetToIndex.Remove(offset);
-                
-                Interlocked.Increment(ref m_RemoveCount);
+                long lastOffset = m_IndexToOffset[lastIndex];
+                m_IndexToOffset[removedIndex] = lastOffset;
+                m_OffsetToIndex[lastOffset] = removedIndex;
             }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-            }
+
+            m_IndexToOffset.RemoveAt(lastIndex);
+            m_OffsetToIndex.Remove(offset);
             
-            // Fire event outside of lock to prevent deadlocks
-            if (hasEvent && m_EventProcessingEnabled)
-            {
-                m_EventQueue.Enqueue(eventData);
-                ProcessEventsAsync();
-            }
-
+            m_RemoveCount++;
+            
+            // Fire events immediately
+            ProcessPendingEvents();
+            
             return true;
         }
 
@@ -145,18 +107,8 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            m_Lock.EnterReadLock();
-            try
-            {
-                Interlocked.Increment(ref m_LookupCount);
-                if (m_OffsetToIndex.TryGetValue(offset, out int index))
-                    return index;
-                return -1;
-            }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+            m_LookupCount++;
+            return m_OffsetToIndex.GetValueOrDefault(offset, -1);
         }
 
         /// <summary>
@@ -168,16 +120,7 @@ namespace PropellerHead
         public bool Contains(long offset)
         {
             ThrowIfDisposed();
-            
-            m_Lock.EnterReadLock();
-            try
-            {
-                return m_OffsetToIndex.ContainsKey(offset);
-            }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+            return m_OffsetToIndex.ContainsKey(offset);
         }
 
         /// <summary>
@@ -189,16 +132,7 @@ namespace PropellerHead
             get
             {
                 ThrowIfDisposed();
-                
-                m_Lock.EnterReadLock();
-                try
-                {
-                    return m_IndexToOffset.Count;
-                }
-                finally
-                {
-                    m_Lock.ExitReadLock();
-                }
+                return m_IndexToOffset.Count;
             }
         }
 
@@ -209,16 +143,7 @@ namespace PropellerHead
         public IEnumerable<long> GetAllOffsets()
         {
             ThrowIfDisposed();
-            
-            m_Lock.EnterReadLock();
-            try
-            {
-                return new List<long>(m_IndexToOffset);
-            }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+            return new List<long>(m_IndexToOffset);
         }
 
         /// <summary>
@@ -229,38 +154,18 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            List<OffsetRemovedEventData> eventsToProcess = new List<OffsetRemovedEventData>();
-            
-            m_Lock.EnterWriteLock();
-            try
+            // Collect events for all existing offsets
+            for (int i = 0; i < m_IndexToOffset.Count; i++)
             {
-                // Collect events while holding lock
-                if (m_EventProcessingEnabled)
-                {
-                    for (int i = 0; i < m_IndexToOffset.Count; i++)
-                    {
-                        eventsToProcess.Add(new OffsetRemovedEventData(m_IndexToOffset[i], i));
-                    }
-                }
+                m_EventBuffer.Add(new OffsetRemovedEventData(m_IndexToOffset[i], i));
+            }
 
-                m_IndexToOffset.Clear();
-                m_OffsetToIndex.Clear();
-                m_NextOffset = 0;
-            }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-            }
+            m_IndexToOffset.Clear();
+            m_OffsetToIndex.Clear();
+            m_NextOffset = 0;
             
-            // Process events outside of lock
-            if (eventsToProcess.Count > 0)
-            {
-                foreach (var eventData in eventsToProcess)
-                {
-                    m_EventQueue.Enqueue(eventData);
-                }
-                ProcessEventsAsync();
-            }
+            // Process events
+            ProcessPendingEvents();
         }
 
         /// <summary>
@@ -270,47 +175,37 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            m_Lock.EnterReadLock();
-            try
+            // Check that both mappings are consistent
+            if (m_IndexToOffset.Count != m_OffsetToIndex.Count)
+                return false;
+
+            for (int i = 0; i < m_IndexToOffset.Count; i++)
             {
-                // Check that both mappings are consistent
-                if (m_IndexToOffset.Count != m_OffsetToIndex.Count)
+                long offset = m_IndexToOffset[i];
+                if (!m_OffsetToIndex.TryGetValue(offset, out int mappedIndex) || mappedIndex != i)
                     return false;
-
-                for (int i = 0; i < m_IndexToOffset.Count; i++)
-                {
-                    long offset = m_IndexToOffset[i];
-                    if (!m_OffsetToIndex.TryGetValue(offset, out int mappedIndex) || mappedIndex != i)
-                        return false;
-                }
-
-                return true;
             }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+
+            return true;
         }
 
-        private async void ProcessEventsAsync()
+        private void ProcessPendingEvents()
         {
-            if (!m_EventProcessingEnabled) return;
-            
-            await Task.Run(() =>
+            while (m_EventBuffer.Count > 0)
             {
-                while (m_EventQueue.TryDequeue(out OffsetRemovedEventData eventData))
+                var eventData = m_EventBuffer[0];
+                m_EventBuffer.RemoveAt(0);
+                
+                try
                 {
-                    try
-                    {
-                        OnOffsetRemoved?.Invoke(eventData.Offset, eventData.Index);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Log error but don't propagate to prevent system failure
-                        Debug.WriteLine($"Error processing OffsetMap event: {ex.Message}");
-                    }
+                    OnOffsetRemoved?.Invoke(eventData.Offset, eventData.Index);
                 }
-            });
+                catch (Exception ex)
+                {
+                    // Log error but don't propagate to prevent system failure
+                    Debug.WriteLine($"Error processing OffsetMap event: {ex.Message}");
+                }
+            }
         }
 
         private void ThrowIfDisposed()
@@ -323,34 +218,14 @@ namespace PropellerHead
         {
             if (m_Disposed) return;
             
-            m_EventProcessingEnabled = false;
-            
             // Process any remaining events
-            while (m_EventQueue.TryDequeue(out OffsetRemovedEventData eventData))
-            {
-                try
-                {
-                    OnOffsetRemoved?.Invoke(eventData.Offset, eventData.Index);
-                }
-                catch
-                {
-                    // Ignore errors during disposal
-                }
-            }
+            ProcessPendingEvents();
             
-            m_Lock.EnterWriteLock();
-            try
-            {
-                m_IndexToOffset.Clear();
-                m_OffsetToIndex.Clear();
-                OnOffsetRemoved = null;
-                m_Disposed = true;
-            }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-                m_Lock.Dispose();
-            }
+            m_IndexToOffset.Clear();
+            m_OffsetToIndex.Clear();
+            m_EventBuffer.Clear();
+            OnOffsetRemoved = null;
+            m_Disposed = true;
         }
     }
 

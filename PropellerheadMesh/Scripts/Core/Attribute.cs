@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 using System.Runtime.CompilerServices;
 
 namespace PropellerHead
@@ -26,7 +25,6 @@ namespace PropellerHead
     /// High-performance generic attribute storage with optimized sparse data support
     /// Features:
     /// - Segmented storage for better cache locality
-    /// - Lock-free reads for common cases
     /// - Optimized index shifting algorithm
     /// - Memory pooling for reduced GC pressure
     /// </summary>
@@ -39,9 +37,8 @@ namespace PropellerHead
         private readonly Dictionary<int, T[]> m_Segments = new Dictionary<int, T[]>();
         private readonly BitArray m_SetBits = new BitArray();
         private readonly T m_DefaultValue;
-        private readonly ReaderWriterLockSlim m_Lock = new ReaderWriterLockSlim();
         private readonly string m_Name;
-        private volatile bool m_Disposed = false;
+        private bool m_Disposed = false;
         
         // Performance counters
         private long m_GetCount;
@@ -56,44 +53,22 @@ namespace PropellerHead
         /// <summary>
         /// Gets the number of explicitly set values
         /// </summary>
-        public int AllocatedCount
-        {
-            get
-            {
-                m_Lock.EnterReadLock();
-                try
-                {
-                    return m_SetBits.Count;
-                }
-                finally
-                {
-                    m_Lock.ExitReadLock();
-                }
-            }
-        }
+        public int AllocatedCount => m_SetBits.Count;
 
         /// <summary>
         /// Gets performance metrics for monitoring
         /// </summary>
         public AttributeMetrics GetMetrics()
         {
-            m_Lock.EnterReadLock();
-            try
-            {
-                return new AttributeMetrics(
-                    m_SetBits.Count,
-                    m_Segments.Count,
-                    Interlocked.Read(ref m_GetCount),
-                    Interlocked.Read(ref m_SetCount),
-                    Interlocked.Read(ref m_RemoveCount),
-                    Interlocked.Read(ref m_MemoryAllocated),
-                    typeof(T).Name
-                );
-            }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+            return new AttributeMetrics(
+                m_SetBits.Count,
+                m_Segments.Count,
+                m_GetCount,
+                m_SetCount,
+                m_RemoveCount,
+                m_MemoryAllocated,
+                typeof(T).Name
+            );
         }
 
         /// <summary>
@@ -113,9 +88,9 @@ namespace PropellerHead
 
         /// <summary>
         /// Gets the value for the specified offset
-        /// Performance: O(1) with lock-free fast path
+        /// Performance: O(1)
         /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Get(long offset, OffsetMap map)
         {
             if (map == null)
@@ -127,33 +102,21 @@ namespace PropellerHead
             if (index < 0)
                 return m_DefaultValue;
 
-            Interlocked.Increment(ref m_GetCount);
+            m_GetCount++;
 
-            // Fast path: check if bit is set without lock
+            // Check if bit is set
             if (!m_SetBits.Get(index))
                 return m_DefaultValue;
 
-            m_Lock.EnterReadLock();
-            try
+            int segmentIndex = index >> 10; // Divide by 1024
+            int elementIndex = index & SEGMENT_MASK;
+
+            if (m_Segments.TryGetValue(segmentIndex, out T[] segment))
             {
-                // Double-check after acquiring lock
-                if (!m_SetBits.Get(index))
-                    return m_DefaultValue;
-
-                int segmentIndex = index >> 10; // Divide by 1024
-                int elementIndex = index & SEGMENT_MASK;
-
-                if (m_Segments.TryGetValue(segmentIndex, out T[] segment))
-                {
-                    return segment[elementIndex];
-                }
-
-                return m_DefaultValue;
+                return segment[elementIndex];
             }
-            finally
-            {
-                m_Lock.ExitReadLock();
-            }
+
+            return m_DefaultValue;
         }
 
         /// <summary>
@@ -171,46 +134,38 @@ namespace PropellerHead
             if (index < 0)
                 throw new ArgumentException($"Offset {offset} is not valid in the provided OffsetMap", nameof(offset));
 
-            Interlocked.Increment(ref m_SetCount);
+            m_SetCount++;
 
-            m_Lock.EnterWriteLock();
-            try
+            bool isDefault = EqualityComparer<T>.Default.Equals(value, m_DefaultValue);
+            
+            if (isDefault)
             {
-                bool isDefault = EqualityComparer<T>.Default.Equals(value, m_DefaultValue);
+                // Remove entry if setting to default value
+                m_SetBits.Set(index, false);
+                return;
+            }
+
+            // Ensure segment exists
+            int segmentIndex = index >> 10;
+            int elementIndex = index & SEGMENT_MASK;
+
+            if (!m_Segments.TryGetValue(segmentIndex, out T[] segment))
+            {
+                segment = new T[SEGMENT_SIZE];
+                m_Segments[segmentIndex] = segment;
                 
-                if (isDefault)
-                {
-                    // Remove entry if setting to default value
-                    m_SetBits.Set(index, false);
-                    return;
-                }
-
-                // Ensure segment exists
-                int segmentIndex = index >> 10;
-                int elementIndex = index & SEGMENT_MASK;
-
-                if (!m_Segments.TryGetValue(segmentIndex, out T[] segment))
-                {
-                    segment = new T[SEGMENT_SIZE];
-                    m_Segments[segmentIndex] = segment;
-                    
-                    Interlocked.Add(ref m_MemoryAllocated, SEGMENT_SIZE * GetElementSize());
-                }
-
-                segment[elementIndex] = value;
-                m_SetBits.Set(index, true);
+                m_MemoryAllocated += SEGMENT_SIZE * GetElementSize();
             }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-            }
+
+            segment[elementIndex] = value;
+            m_SetBits.Set(index, true);
         }
 
         /// <summary>
         /// Checks if a value is explicitly set for the specified offset
-        /// Performance: O(1) lock-free
+        /// Performance: O(1)
         /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool HasValue(long offset, OffsetMap map)
         {
             if (map == null)
@@ -236,17 +191,8 @@ namespace PropellerHead
             int index = map.GetIndex(offset);
             if (index >= 0)
             {
-                Interlocked.Increment(ref m_RemoveCount);
-                
-                m_Lock.EnterWriteLock();
-                try
-                {
-                    m_SetBits.Set(index, false);
-                }
-                finally
-                {
-                    m_Lock.ExitWriteLock();
-                }
+                m_RemoveCount++;
+                m_SetBits.Set(index, false);
             }
         }
 
@@ -256,22 +202,14 @@ namespace PropellerHead
         /// </summary>
         internal void OnOffsetRemoved(long removedOffset, int removedIndex)
         {
-            m_Lock.EnterWriteLock();
-            try
-            {
-                // Clear the bit for the removed index
-                m_SetBits.Set(removedIndex, false);
-                
-                // Efficiently shift bits down using BitArray operations
-                m_SetBits.ShiftLeft(removedIndex);
-                
-                // Shift segment data efficiently
-                ShiftSegmentData(removedIndex);
-            }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-            }
+            // Clear the bit for the removed index
+            m_SetBits.Set(removedIndex, false);
+            
+            // Efficiently shift bits down using BitArray operations
+            m_SetBits.ShiftLeft(removedIndex);
+            
+            // Shift segment data efficiently
+            ShiftSegmentData(removedIndex);
         }
 
         private void ShiftSegmentData(int removedIndex)
@@ -315,7 +253,7 @@ namespace PropellerHead
             {
                 T[] segment = new T[SEGMENT_SIZE];
                 m_Segments[segmentIndex] = segment;
-                Interlocked.Add(ref m_MemoryAllocated, SEGMENT_SIZE * GetElementSize());
+                m_MemoryAllocated += SEGMENT_SIZE * GetElementSize();
             }
         }
 
@@ -339,42 +277,34 @@ namespace PropellerHead
         {
             ThrowIfDisposed();
             
-            m_Lock.EnterWriteLock();
-            try
+            var emptySegments = new List<int>();
+            
+            foreach (var kvp in m_Segments)
             {
-                var emptySegments = new List<int>();
+                int segmentIndex = kvp.Key;
+                int startBit = segmentIndex << 10;
+                int endBit = Math.Min(startBit + SEGMENT_SIZE, m_SetBits.Length);
                 
-                foreach (var kvp in m_Segments)
+                bool hasData = false;
+                for (int i = startBit; i < endBit; i++)
                 {
-                    int segmentIndex = kvp.Key;
-                    int startBit = segmentIndex << 10;
-                    int endBit = Math.Min(startBit + SEGMENT_SIZE, m_SetBits.Length);
-                    
-                    bool hasData = false;
-                    for (int i = startBit; i < endBit; i++)
+                    if (m_SetBits.Get(i))
                     {
-                        if (m_SetBits.Get(i))
-                        {
-                            hasData = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!hasData)
-                    {
-                        emptySegments.Add(segmentIndex);
+                        hasData = true;
+                        break;
                     }
                 }
                 
-                foreach (int segmentIndex in emptySegments)
+                if (!hasData)
                 {
-                    m_Segments.Remove(segmentIndex);
-                    Interlocked.Add(ref m_MemoryAllocated, -SEGMENT_SIZE * GetElementSize());
+                    emptySegments.Add(segmentIndex);
                 }
             }
-            finally
+            
+            foreach (int segmentIndex in emptySegments)
             {
-                m_Lock.ExitWriteLock();
+                m_Segments.Remove(segmentIndex);
+                m_MemoryAllocated -= SEGMENT_SIZE * GetElementSize();
             }
         }
 
@@ -402,7 +332,7 @@ namespace PropellerHead
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        // [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ThrowIfDisposed()
         {
             if (m_Disposed)
@@ -413,18 +343,9 @@ namespace PropellerHead
         {
             if (m_Disposed) return;
             
-            m_Lock.EnterWriteLock();
-            try
-            {
-                m_Segments.Clear();
-                m_SetBits.Dispose();
-                m_Disposed = true;
-            }
-            finally
-            {
-                m_Lock.ExitWriteLock();
-                m_Lock.Dispose();
-            }
+            m_Segments.Clear();
+            m_SetBits.Dispose();
+            m_Disposed = true;
         }
     }
 
@@ -461,13 +382,12 @@ namespace PropellerHead
     }
 
     /// <summary>
-    /// High-performance bit array with atomic operations
+    /// High-performance bit array
     /// </summary>
     internal class BitArray : IDisposable
     {
         private long[] m_Bits;
-        private volatile int m_Count;
-        private readonly object m_Lock = new object();
+        private int m_Count;
 
         public int Length => m_Bits.Length * 64;
         public int Count => m_Count;
@@ -498,48 +418,42 @@ namespace PropellerHead
             int bitIndex = index % 64;
             long mask = 1L << bitIndex;
             
-            lock (m_Lock)
+            bool wasSet = (m_Bits[longIndex] & mask) != 0;
+            
+            if (value)
             {
-                bool wasSet = (m_Bits[longIndex] & mask) != 0;
-                
-                if (value)
-                {
-                    m_Bits[longIndex] |= mask;
-                    if (!wasSet) m_Count++;
-                }
-                else
-                {
-                    m_Bits[longIndex] &= ~mask;
-                    if (wasSet) m_Count--;
-                }
+                m_Bits[longIndex] |= mask;
+                if (!wasSet) m_Count++;
+            }
+            else
+            {
+                m_Bits[longIndex] &= ~mask;
+                if (wasSet) m_Count--;
             }
         }
 
         public void ShiftLeft(int fromIndex)
         {
-            lock (m_Lock)
+            int longIndex = fromIndex / 64;
+            int bitIndex = fromIndex % 64;
+            
+            // Shift within the same long
+            if (bitIndex > 0)
             {
-                int longIndex = fromIndex / 64;
-                int bitIndex = fromIndex % 64;
-                
-                // Shift within the same long
-                if (bitIndex > 0)
+                long mask = (1L << bitIndex) - 1;
+                long lower = m_Bits[longIndex] & mask;
+                long upper = m_Bits[longIndex] & ~mask;
+                m_Bits[longIndex] = lower | (upper >> 1);
+            }
+            
+            // Shift remaining longs
+            for (int i = longIndex + 1; i < m_Bits.Length; i++)
+            {
+                if (i > longIndex + 1)
                 {
-                    long mask = (1L << bitIndex) - 1;
-                    long lower = m_Bits[longIndex] & mask;
-                    long upper = m_Bits[longIndex] & ~mask;
-                    m_Bits[longIndex] = lower | (upper >> 1);
+                    m_Bits[i - 1] |= (m_Bits[i] & 1) << 63;
                 }
-                
-                // Shift remaining longs
-                for (int i = longIndex + 1; i < m_Bits.Length; i++)
-                {
-                    if (i > longIndex + 1)
-                    {
-                        m_Bits[i - 1] |= (m_Bits[i] & 1) << 63;
-                    }
-                    m_Bits[i] >>= 1;
-                }
+                m_Bits[i] >>= 1;
             }
         }
 

@@ -1,25 +1,22 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Linq;
-using System.Threading;
 using System.Diagnostics;
 
 namespace PropellerHead
 {
     /// <summary>
-    /// Manages attribute IDs with thread-safe registration and lookup
+    /// Manages attribute IDs with registration and lookup
     /// Features:
-    /// - Thread-safe registration with atomic operations
     /// - Performance monitoring and metrics
     /// - Reserved ID ranges for system attributes
     /// - Comprehensive validation and error handling
     /// </summary>
     public static class AttribID
     {
-        private static readonly ConcurrentDictionary<string, int> s_NameToId = new ConcurrentDictionary<string, int>();
-        private static readonly ConcurrentDictionary<int, string> s_IdToName = new ConcurrentDictionary<int, string>();
-        private static volatile int s_NextId = 0;
+        private static readonly Dictionary<string, int> s_NameToId = new();
+        private static readonly Dictionary<int, string> s_IdToName = new();
+        private static int s_NextId;
         
         // Performance counters
         private static long s_RegisterCount;
@@ -60,8 +57,8 @@ namespace PropellerHead
 
             return new AttribIDMetrics(
                 s_NameToId.Count,
-                Interlocked.Read(ref s_RegisterCount),
-                Interlocked.Read(ref s_LookupCount),
+                s_RegisterCount,
+                s_LookupCount,
                 s_NextId,
                 systemCount
             );
@@ -69,7 +66,7 @@ namespace PropellerHead
 
         /// <summary>
         /// Registers a new attribute name and returns its ID
-        /// Performance: O(1) average case with atomic operations
+        /// Performance: O(1) average case
         /// </summary>
         /// <param name="name">The name of the attribute</param>
         /// <returns>The attribute ID</returns>
@@ -80,26 +77,22 @@ namespace PropellerHead
             
             name = name.Trim();
             
-            Interlocked.Increment(ref s_RegisterCount);
+            s_RegisterCount++;
             
             // Try to get existing ID first
             if (s_NameToId.TryGetValue(name, out int existingId))
                 return existingId;
 
-            // Generate new ID using atomic increment (user range)
+            // Generate new ID (user range)
             int newId = GenerateUserId();
 
-            // Attempt to register the mapping atomically
-            int actualId = s_NameToId.GetOrAdd(name, newId);
+            // Register the mapping
+            s_NameToId[name] = newId;
+            s_IdToName[newId] = name;
             
-            // Only add to reverse mapping if we successfully added the forward mapping
-            if (actualId == newId)
-            {
-                s_IdToName.TryAdd(newId, name);
-                Debug.WriteLine($"Registered attribute: {name} -> ID {newId}");
-            }
+            Debug.WriteLine($"Registered attribute: {name} -> ID {newId}");
 
-            return actualId;
+            return newId;
         }
 
         /// <summary>
@@ -118,16 +111,13 @@ namespace PropellerHead
             // Generate system ID
             int newId = GenerateSystemId();
 
-            // Attempt to register the mapping atomically
-            int actualId = s_NameToId.GetOrAdd(name, newId);
+            // Register the mapping
+            s_NameToId[name] = newId;
+            s_IdToName[newId] = name;
             
-            if (actualId == newId)
-            {
-                s_IdToName.TryAdd(newId, name);
-                Debug.WriteLine($"Registered system attribute: {name} -> ID {newId}");
-            }
+            Debug.WriteLine($"Registered system attribute: {name} -> ID {newId}");
 
-            return actualId;
+            return newId;
         }
 
         private static int GenerateSystemId()
@@ -135,7 +125,7 @@ namespace PropellerHead
             int id;
             do
             {
-                id = Interlocked.Increment(ref s_NextId) - 1;
+                id = s_NextId++;
             } while (id >= SYSTEM_RESERVED_END);
             
             return id;
@@ -146,7 +136,7 @@ namespace PropellerHead
             int id;
             do
             {
-                id = Interlocked.Increment(ref s_NextId) - 1;
+                id = s_NextId++;
             } while (id < USER_RESERVED_START);
             
             return id;
@@ -177,10 +167,8 @@ namespace PropellerHead
         /// <returns>The attribute name, or null if not found</returns>
         public static string GetName(int id)
         {
-            Interlocked.Increment(ref s_LookupCount);
-            if (s_IdToName.TryGetValue(id, out string name))
-                return name;
-            return null;
+            s_LookupCount++;
+            return s_IdToName.GetValueOrDefault(id);
         }
 
         /// <summary>
@@ -194,7 +182,7 @@ namespace PropellerHead
             if (string.IsNullOrWhiteSpace(name))
                 return -1;
 
-            Interlocked.Increment(ref s_LookupCount);
+            s_LookupCount++;
             if (s_NameToId.TryGetValue(name.Trim(), out int id))
                 return id;
             return -1;
