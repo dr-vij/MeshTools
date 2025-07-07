@@ -20,11 +20,13 @@ namespace PropellerHead
         public float WiggleAmplitude = 0.3f;
         public Vector3 TimeMultiplier = new(0.8f, 0.6f, 0.4f);
         public Vector3 NoiseOffset = new(0.3f, 0.9f, 0.7f);
+        public int Subdivisions = 1;
 
         private void Start()
         {
-            CreateCube();
-            // CreateSphere();
+            // CreateCube();
+            
+            CreateSphere();
             SetupWiggler();
             CalculateNormals();
             CreateDebugVisualization();
@@ -40,7 +42,7 @@ namespace PropellerHead
         private void CreateSphere()
         {
             m_TestDetail = new Detail();
-            m_TestDetail.GenerateSphere(1, 2);
+            m_TestDetail.GenerateSphere(1, Subdivisions);
         }
 
         private void CreateCube()

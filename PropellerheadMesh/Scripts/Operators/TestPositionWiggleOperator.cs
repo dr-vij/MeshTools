@@ -157,25 +157,51 @@ namespace PropellerHead.Operators
         
         private float3 CalculateWiggledPosition(float3 originalPos, float time)
         {
-            // Generate 3D noise for each axis
-            var noiseX = Mathf.PerlinNoise(
+            // Generate 3D noise for each axis using custom 3D noise
+            var noiseX = Misc.Noises.Noise3D(
                 originalPos.x * NoiseScale + time * TimeMultiplier.x, 
-                originalPos.y * NoiseScale + time * NoiseOffset.x
-            ) * 2f - 1f;
-            
-            var noiseY = Mathf.PerlinNoise(
+                originalPos.y * NoiseScale + time * NoiseOffset.x,
+                originalPos.z * NoiseScale
+            );
+    
+            var noiseY = Misc.Noises.Noise3D(
                 originalPos.y * NoiseScale + time * TimeMultiplier.y, 
-                originalPos.z * NoiseScale + time * NoiseOffset.y
-            ) * 2f - 1f;
-            
-            var noiseZ = Mathf.PerlinNoise(
+                originalPos.z * NoiseScale + time * NoiseOffset.y,
+                originalPos.x * NoiseScale
+            );
+    
+            var noiseZ = Misc.Noises.Noise3D(
                 originalPos.z * NoiseScale + time * TimeMultiplier.z, 
-                originalPos.x * NoiseScale + time * NoiseOffset.z
-            ) * 2f - 1f;
+                originalPos.x * NoiseScale + time * NoiseOffset.z,
+                originalPos.y * NoiseScale
+            );
 
             // Apply wiggle offset
             var wiggleOffset = new float3(noiseX, noiseY, noiseZ) * WiggleAmplitude;
             return originalPos + wiggleOffset;
         }
+
+        // private float3 CalculateWiggledPosition(float3 originalPos, float time)
+        // {
+        //     // Generate 3D noise for each axis
+        //     var noiseX = Mathf.PerlinNoise(
+        //         originalPos.x * NoiseScale + time * TimeMultiplier.x, 
+        //         originalPos.y * NoiseScale + time * NoiseOffset.x
+        //     ) * 2f - 1f;
+        //     
+        //     var noiseY = Mathf.PerlinNoise(
+        //         originalPos.y * NoiseScale + time * TimeMultiplier.y, 
+        //         originalPos.z * NoiseScale + time * NoiseOffset.y
+        //     ) * 2f - 1f;
+        //     
+        //     var noiseZ = Mathf.PerlinNoise(
+        //         originalPos.z * NoiseScale + time * TimeMultiplier.z, 
+        //         originalPos.x * NoiseScale + time * NoiseOffset.z
+        //     ) * 2f - 1f;
+        //
+        //     // Apply wiggle offset
+        //     var wiggleOffset = new float3(noiseX, noiseY, noiseZ) * WiggleAmplitude;
+        //     return originalPos + wiggleOffset;
+        // }
     }
 }
