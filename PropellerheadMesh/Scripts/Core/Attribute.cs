@@ -27,32 +27,29 @@ namespace PropellerHead
     {
         private readonly Dictionary<long, T> m_Values = new();
         private readonly T m_DefaultValue;
-        private readonly string m_Name;
-        private bool m_Disposed = false;
+        private bool m_Disposed;
 
         public Type DataType => typeof(T);
         public int ID { get; private set; }
-        public string Name => m_Name;
+        public string Name { get; }
         public int AllocatedCount => m_Values.Count;
 
-        public Attribute(int id, T defaultVal = default(T))
+        public Attribute(int id, T defaultVal = default)
         {
             if (id < 0)
                 throw new ArgumentException("Attribute ID must be non-negative", nameof(id));
 
             ID = id;
             m_DefaultValue = defaultVal;
-            m_Name = AttribID.GetName(id) ?? $"UnknownAttribute_{id}";
+            Name = AttribID.GetName(id) ?? $"UnknownAttribute_{id}";
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Get(long offset)
         {
             ThrowIfDisposed();
             return m_Values.GetValueOrDefault(offset, m_DefaultValue);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Set(long offset, T value)
         {
             ThrowIfDisposed();
@@ -67,7 +64,6 @@ namespace PropellerHead
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool HasValue(long offset)
         {
             ThrowIfDisposed();
@@ -80,7 +76,6 @@ namespace PropellerHead
             m_Values.Remove(offset);
         }
 
-        // IAttribute interface implementation
         public object GetValue(long offset) => Get(offset);
 
         public void SetValue(long offset, object value)
@@ -90,7 +85,7 @@ namespace PropellerHead
                 if (!typeof(T).IsClass && Nullable.GetUnderlyingType(typeof(T)) == null)
                     throw new ArgumentNullException(nameof(value), $"Cannot set null value for non-nullable type {typeof(T)}");
                 
-                Set(offset, default(T));
+                Set(offset, default);
                 return;
             }
 

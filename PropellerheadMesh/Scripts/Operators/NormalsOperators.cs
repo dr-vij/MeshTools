@@ -259,11 +259,11 @@ namespace PropellerHead.Operators
 
             var faceNormals = new Dictionary<long, float3>();
 
-            // Reuse static list to avoid allocation
+            // Reuse a static list to avoid allocation
             m_TempAffectedPrimitives.Clear();
             var affectedPrimitivesSet = new HashSet<long>();
 
-            // Find all primitives that need face normal recalculation
+            // Find all primitives that need a face normal recalculation
             foreach (var vertexOffset in vertexOffsets)
             {
                 var primitives = detail.GetPrimitivesForVertex(vertexOffset);

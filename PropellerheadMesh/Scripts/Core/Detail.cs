@@ -11,7 +11,7 @@ namespace PropellerHead
     /// </summary>
     public class Detail : IDisposable
     {
-        private bool m_Disposed = false;
+        private bool m_Disposed;
 
         private readonly Dictionary<int, IAttribute> m_PointAttribs = new();
         private readonly Dictionary<int, IAttribute> m_VertexAttribs = new();
@@ -110,7 +110,6 @@ namespace PropellerHead
         /// <returns>A collection of all point offsets</returns>
         public IEnumerable<long> GetAllPointOffsets()
         {
-            ThrowIfDisposed();
             return m_PointOffsets;
         }
 
@@ -120,7 +119,6 @@ namespace PropellerHead
         /// <returns>A collection of all vertex offsets</returns>
         public IEnumerable<long> GetAllVertexOffsets()
         {
-            ThrowIfDisposed();
             return m_VertexOffsets;
         }
 
@@ -130,7 +128,6 @@ namespace PropellerHead
         /// <returns>A collection of all primitive offsets</returns>
         public IEnumerable<long> GetAllPrimOffsets()
         {
-            ThrowIfDisposed();
             return m_PrimOffsets;
         }
 
@@ -149,8 +146,6 @@ namespace PropellerHead
             if (attrib == null)
                 throw new ArgumentNullException(nameof(attrib));
 
-            ThrowIfDisposed();
-            
             if (m_PointAttribs.ContainsKey(attrib.ID))
                 throw new ArgumentException($"Point attribute with ID {attrib.ID} ({attrib.Name}) already exists");
 
@@ -169,12 +164,9 @@ namespace PropellerHead
             if (attrib == null)
                 throw new ArgumentNullException(nameof(attrib));
 
-            ThrowIfDisposed();
-            
-            if (m_VertexAttribs.ContainsKey(attrib.ID))
+            if (!m_VertexAttribs.TryAdd(attrib.ID, attrib))
                 throw new ArgumentException($"Vertex attribute with ID {attrib.ID} ({attrib.Name}) already exists");
 
-            m_VertexAttribs[attrib.ID] = attrib;
             InvalidateCache();
         }
 
@@ -189,12 +181,9 @@ namespace PropellerHead
             if (attrib == null)
                 throw new ArgumentNullException(nameof(attrib));
 
-            ThrowIfDisposed();
-            
-            if (m_PrimAttribs.ContainsKey(attrib.ID))
+            if (!m_PrimAttribs.TryAdd(attrib.ID, attrib))
                 throw new ArgumentException($"Primitive attribute with ID {attrib.ID} ({attrib.Name}) already exists");
 
-            m_PrimAttribs[attrib.ID] = attrib;
             InvalidateCache();
         }
 
@@ -206,8 +195,6 @@ namespace PropellerHead
         /// <returns>The attribute, or null if not found or wrong type</returns>
         public Attribute<T> GetPointAttrib<T>(int id)
         {
-            ThrowIfDisposed();
-            
             return m_PointAttribs.TryGetValue(id, out var attr) && attr is Attribute<T> typed ? typed : null;
         }
 
@@ -219,8 +206,6 @@ namespace PropellerHead
         /// <returns>The attribute, or null if not found or wrong type</returns>
         public Attribute<T> GetVertexAttrib<T>(int id)
         {
-            ThrowIfDisposed();
-            
             return m_VertexAttribs.TryGetValue(id, out var attr) && attr is Attribute<T> typed ? typed : null;
         }
 
@@ -232,8 +217,6 @@ namespace PropellerHead
         /// <returns>The attribute, or null if not found or wrong type</returns>
         public Attribute<T> GetPrimAttrib<T>(int id)
         {
-            ThrowIfDisposed();
-            
             return m_PrimAttribs.TryGetValue(id, out var attr) && attr is Attribute<T> typed ? typed : null;
         }
 
@@ -244,8 +227,6 @@ namespace PropellerHead
         /// <returns>True if the attribute was found and removed</returns>
         public bool RemovePointAttrib(int id)
         {
-            ThrowIfDisposed();
-            
             if (id == AttribID.Position)
                 throw new InvalidOperationException("Cannot remove the Position attribute");
 
@@ -266,8 +247,6 @@ namespace PropellerHead
         /// <returns>True if the attribute was found and removed</returns>
         public bool RemoveVertexAttrib(int id)
         {
-            ThrowIfDisposed();
-            
             if (m_VertexAttribs.TryGetValue(id, out var attr))
             {
                 attr.Dispose();
@@ -285,8 +264,6 @@ namespace PropellerHead
         /// <returns>True if the attribute was found and removed</returns>
         public bool RemovePrimAttrib(int id)
         {
-            ThrowIfDisposed();
-            
             if (m_PrimAttribs.TryGetValue(id, out var attr))
             {
                 attr.Dispose();
@@ -312,8 +289,6 @@ namespace PropellerHead
             if (!IsValidFloat3(pos))
                 throw new ArgumentException("Position contains invalid values (NaN or Infinity)", nameof(pos));
 
-            ThrowIfDisposed();
-            
             long offset = m_NextPointOffset++;
             m_PointOffsets.Add(offset);
             
@@ -333,8 +308,6 @@ namespace PropellerHead
         /// <returns>True if the point was found and removed, false otherwise</returns>
         public bool RemovePoint(long pointOffset)
         {
-            ThrowIfDisposed();
-            
             if (!m_PointOffsets.Contains(pointOffset))
                 return false;
 
@@ -350,9 +323,7 @@ namespace PropellerHead
 
             // Remove from all point attributes
             foreach (var attr in m_PointAttribs.Values)
-            {
                 attr.RemoveValue(pointOffset);
-            }
 
             m_PointOffsets.Remove(pointOffset);
             m_PointToVertices.Remove(pointOffset);
@@ -366,8 +337,6 @@ namespace PropellerHead
         /// <returns>The position, or float3.zero if not found</returns>
         public float3 GetPointPos(long offset)
         {
-            ThrowIfDisposed();
-            
             var posAttrib = GetPointAttrib<float3>(AttribID.Position);
             return posAttrib?.Get(offset) ?? float3.zero;
         }
@@ -383,8 +352,6 @@ namespace PropellerHead
             if (!IsValidFloat3(pos))
                 throw new ArgumentException("Position contains invalid values (NaN or Infinity)", nameof(pos));
 
-            ThrowIfDisposed();
-            
             if (!m_PointOffsets.Contains(offset))
                 throw new ArgumentException($"Point offset {offset} does not exist", nameof(offset));
 
@@ -404,8 +371,6 @@ namespace PropellerHead
         /// <exception cref="ArgumentException">Thrown if the point offset doesn't exist</exception>
         public long AddVertex(long pointOffset)
         {
-            ThrowIfDisposed();
-            
             if (!m_PointOffsets.Contains(pointOffset))
                 throw new ArgumentException($"Point offset {pointOffset} does not exist", nameof(pointOffset));
 
@@ -434,8 +399,6 @@ namespace PropellerHead
         /// <returns>True if the vertex was found and removed, false otherwise</returns>
         public bool RemoveVertex(long vertexOffset)
         {
-            ThrowIfDisposed();
-            
             return RemoveVertexInternal(vertexOffset);
         }
 
@@ -491,8 +454,6 @@ namespace PropellerHead
         /// <returns>The point offset, or -1 if not found</returns>
         public long GetVertexPoint(long vertexOffset)
         {
-            ThrowIfDisposed();
-            
             return m_VertexToPoint.GetValueOrDefault(vertexOffset, -1);
         }
 
@@ -503,8 +464,6 @@ namespace PropellerHead
         /// <returns>A collection of vertex offsets</returns>
         public IEnumerable<long> GetVerticesForPoint(long pointOffset)
         {
-            ThrowIfDisposed();
-            
             if (m_PointToVertices.TryGetValue(pointOffset, out var vertices))
                 return vertices;
             return Enumerable.Empty<long>();
@@ -533,8 +492,6 @@ namespace PropellerHead
             if (uniquePoints.Count != pointOffsets.Length)
                 throw new ArgumentException("Primitive cannot contain duplicate points", nameof(pointOffsets));
 
-            ThrowIfDisposed();
-            
             // Validate all point offsets exist
             foreach (long pointOffset in pointOffsets)
             {
@@ -598,8 +555,6 @@ namespace PropellerHead
         /// <returns>True if the primitive was found and removed, false otherwise</returns>
         public bool RemovePrim(long primOffset)
         {
-            ThrowIfDisposed();
-            
             return RemovePrimInternal(primOffset);
         }
 
@@ -638,8 +593,6 @@ namespace PropellerHead
         /// <returns>The primitive, or null if not found</returns>
         public Primitive GetPrimitive(long primOffset)
         {
-            ThrowIfDisposed();
-            
             return m_Primitives.TryGetValue(primOffset, out var primitive) ? primitive : null;
         }
 
@@ -650,8 +603,6 @@ namespace PropellerHead
         /// <returns>A collection of primitive offsets</returns>
         public IEnumerable<long> GetPrimitivesForVertex(long vertexOffset)
         {
-            ThrowIfDisposed();
-            
             if (m_VertexToPrimitives.TryGetValue(vertexOffset, out var primitives))
             {
                 return primitives.ToList(); // Return a copy to avoid modification issues
@@ -669,8 +620,6 @@ namespace PropellerHead
         /// <returns>True if the structure is valid, false otherwise</returns>
         public bool ValidateIntegrity()
         {
-            ThrowIfDisposed();
-            
             // Check that all vertex-to-point mappings are valid
             foreach (var kvp in m_VertexToPoint)
             {
@@ -732,8 +681,6 @@ namespace PropellerHead
         /// <returns>A tuple containing point count, vertex count, and primitive count</returns>
         public (int PointCount, int VertexCount, int PrimCount) GetStats()
         {
-            ThrowIfDisposed();
-            
             return (m_PointOffsets.Count, m_VertexOffsets.Count, m_PrimOffsets.Count);
         }
 
@@ -743,8 +690,6 @@ namespace PropellerHead
         /// <returns>A detailed statistics object</returns>
         public DetailStatistics GetDetailedStats()
         {
-            ThrowIfDisposed();
-            
             var stats = new DetailStatistics
             {
                 PointCount = m_PointOffsets.Count,
@@ -783,12 +728,6 @@ namespace PropellerHead
             return math.isfinite(value.x) && math.isfinite(value.y) && math.isfinite(value.z);
         }
 
-        private void ThrowIfDisposed()
-        {
-            if (m_Disposed)
-                throw new ObjectDisposedException(nameof(Detail));
-        }
-
         private void InvalidateCache()
         {
             m_CachedPointAttribs = null;
@@ -808,28 +747,21 @@ namespace PropellerHead
             {
                 // Dispose all primitives
                 foreach (var primitive in m_Primitives.Values)
-                {
                     primitive.Dispose();
-                }
                 m_Primitives.Clear();
 
                 // Dispose all attributes
                 foreach (var attr in m_PointAttribs.Values)
-                {
                     attr.Dispose();
-                }
                 m_PointAttribs.Clear();
 
                 foreach (var attr in m_VertexAttribs.Values)
-                {
                     attr.Dispose();
-                }
                 m_VertexAttribs.Clear();
 
                 foreach (var attr in m_PrimAttribs.Values)
-                {
                     attr.Dispose();
-                }
+                
                 m_PrimAttribs.Clear();
 
                 m_VertexToPoint.Clear();
