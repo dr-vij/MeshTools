@@ -1,7 +1,7 @@
 using Unity.Burst;
 using Unity.Mathematics;
 
-namespace PropellerHead.Misc
+namespace Legacy.Misc
 {
     [BurstCompile]
     public static class Noises

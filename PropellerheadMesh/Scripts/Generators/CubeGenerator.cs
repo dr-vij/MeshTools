@@ -1,6 +1,6 @@
 using Unity.Mathematics;
 
-namespace PropellerHead.Generators
+namespace Legacy.Generators
 {
     public static class CubeGenerator
     {

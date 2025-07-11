@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace PropellerHead
+namespace Legacy
 {
     public static class PrimitiveDebugExtensions
     {

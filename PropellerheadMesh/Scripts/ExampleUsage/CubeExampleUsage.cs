@@ -1,10 +1,10 @@
 using UnityEngine;
 using Unity.Mathematics;
 using System.Linq;
-using PropellerHead.Generators;
-using PropellerHead.Operators;
+using Legacy.Operators;
+using Legacy.Generators;
 
-namespace PropellerHead
+namespace Legacy
 {
     public class CubeExampleUsage : MonoBehaviour
     {

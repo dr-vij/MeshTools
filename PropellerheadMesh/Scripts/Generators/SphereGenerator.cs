@@ -1,7 +1,7 @@
 using Unity.Mathematics;
 using System.Collections.Generic;
 
-namespace PropellerHead.Generators
+namespace Legacy.Generators
 {
     public static class SphereGenerator
     {

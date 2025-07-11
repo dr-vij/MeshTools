@@ -2,9 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Unity.Collections;
 using Unity.Mathematics;
 
-namespace PropellerHead
+namespace Legacy
 {
     /// <summary>
     /// Represents a geometric detail with points, vertices, and primitives
@@ -19,8 +20,6 @@ namespace PropellerHead
 
         private readonly Dictionary<long, Primitive> m_Primitives = new();
         private readonly Dictionary<long, long> m_VertexToPoint = new();
-        
-        // Reverse lookup for optimization
         private readonly Dictionary<long, HashSet<long>> m_PointToVertices = new();
         private readonly Dictionary<long, HashSet<long>> m_VertexToPrimitives = new();
 
@@ -46,10 +45,7 @@ namespace PropellerHead
         /// </summary>
         public IReadOnlyDictionary<int, IAttribute> PointAttribs
         {
-            get
-            {
-                return m_CachedPointAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_PointAttribs);
-            }
+            get { return m_CachedPointAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_PointAttribs); }
         }
 
         /// <summary>
@@ -57,10 +53,7 @@ namespace PropellerHead
         /// </summary>
         public IReadOnlyDictionary<int, IAttribute> VertexAttribs
         {
-            get
-            {
-                return m_CachedVertexAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_VertexAttribs);
-            }
+            get { return m_CachedVertexAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_VertexAttribs); }
         }
 
         /// <summary>
@@ -68,10 +61,7 @@ namespace PropellerHead
         /// </summary>
         public IReadOnlyDictionary<int, IAttribute> PrimAttribs
         {
-            get
-            {
-                return m_CachedPrimAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_PrimAttribs);
-            }
+            get { return m_CachedPrimAttribs ??= new ReadOnlyDictionary<int, IAttribute>(m_PrimAttribs); }
         }
 
         /// <summary>
@@ -79,10 +69,7 @@ namespace PropellerHead
         /// </summary>
         public IReadOnlyDictionary<long, Primitive> Primitives
         {
-            get
-            {
-                return m_CachedPrimitives ??= new ReadOnlyDictionary<long, Primitive>(m_Primitives);
-            }
+            get { return m_CachedPrimitives ??= new ReadOnlyDictionary<long, Primitive>(m_Primitives); }
         }
 
         /// <summary>
@@ -90,10 +77,7 @@ namespace PropellerHead
         /// </summary>
         public IReadOnlyDictionary<long, long> VertexToPoint
         {
-            get
-            {
-                return m_CachedVertexToPoint ??= new ReadOnlyDictionary<long, long>(m_VertexToPoint);
-            }
+            get { return m_CachedVertexToPoint ??= new ReadOnlyDictionary<long, long>(m_VertexToPoint); }
         }
 
         public Detail()
@@ -237,6 +221,7 @@ namespace PropellerHead
                 InvalidateCache();
                 return true;
             }
+
             return false;
         }
 
@@ -254,6 +239,7 @@ namespace PropellerHead
                 InvalidateCache();
                 return true;
             }
+
             return false;
         }
 
@@ -271,6 +257,7 @@ namespace PropellerHead
                 InvalidateCache();
                 return true;
             }
+
             return false;
         }
 
@@ -291,13 +278,13 @@ namespace PropellerHead
 
             long offset = m_NextPointOffset++;
             m_PointOffsets.Add(offset);
-            
+
             var posAttrib = GetPointAttrib<float3>(AttribID.Position);
             posAttrib?.Set(offset, pos);
-            
+
             // Initialize reverse lookup
             m_PointToVertices[offset] = new HashSet<long>();
-            
+
             return offset;
         }
 
@@ -377,18 +364,19 @@ namespace PropellerHead
             long offset = m_NextVertexOffset++;
             m_VertexOffsets.Add(offset);
             m_VertexToPoint[offset] = pointOffset;
-            
+
             // Update reverse lookup
             if (!m_PointToVertices.TryGetValue(pointOffset, out var vertices))
             {
                 vertices = new HashSet<long>();
                 m_PointToVertices[pointOffset] = vertices;
             }
+
             vertices.Add(offset);
-            
+
             // Initialize vertex-to-primitives lookup
             m_VertexToPrimitives[offset] = new HashSet<long>();
-            
+
             return offset;
         }
 
@@ -514,13 +502,14 @@ namespace PropellerHead
                 foreach (var vertexOffset in vertices)
                 {
                     prim.AddVertex(vertexOffset);
-                    
+
                     // Update vertex-to-primitive lookup
                     if (!m_VertexToPrimitives.TryGetValue(vertexOffset, out var primSet))
                     {
                         primSet = new HashSet<long>();
                         m_VertexToPrimitives[vertexOffset] = primSet;
                     }
+
                     primSet.Add(offset);
                 }
 
@@ -541,6 +530,7 @@ namespace PropellerHead
                     {
                         primSet.Remove(offset);
                     }
+
                     RemoveVertexInternal(vertexOffset);
                 }
 
@@ -570,6 +560,7 @@ namespace PropellerHead
                 {
                     primSet.Remove(primOffset);
                 }
+
                 RemoveVertexInternal(vertexOffset);
             }
 
@@ -607,6 +598,7 @@ namespace PropellerHead
             {
                 return primitives.ToList(); // Return a copy to avoid modification issues
             }
+
             return Enumerable.Empty<long>();
         }
 
@@ -643,13 +635,13 @@ namespace PropellerHead
             {
                 var pointOffset = kvp.Key;
                 var vertices = kvp.Value;
-                
+
                 if (!m_PointOffsets.Contains(pointOffset))
                     return false;
-                
+
                 foreach (var vertexOffset in vertices)
                 {
-                    if (!m_VertexToPoint.TryGetValue(vertexOffset, out long mappedPoint) || 
+                    if (!m_VertexToPoint.TryGetValue(vertexOffset, out long mappedPoint) ||
                         mappedPoint != pointOffset)
                         return false;
                 }
@@ -660,10 +652,10 @@ namespace PropellerHead
             {
                 var vertexOffset = kvp.Key;
                 var primitives = kvp.Value;
-                
+
                 if (!m_VertexOffsets.Contains(vertexOffset))
                     return false;
-                
+
                 foreach (var primOffset in primitives)
                 {
                     if (!m_Primitives.TryGetValue(primOffset, out var primitive) ||
@@ -705,12 +697,12 @@ namespace PropellerHead
             {
                 stats.PointAttributeMemory += attr.AllocatedCount;
             }
-            
+
             foreach (var attr in m_VertexAttribs.Values)
             {
                 stats.VertexAttributeMemory += attr.AllocatedCount;
             }
-            
+
             foreach (var attr in m_PrimAttribs.Values)
             {
                 stats.PrimitiveAttributeMemory += attr.AllocatedCount;
@@ -761,7 +753,7 @@ namespace PropellerHead
 
                 foreach (var attr in m_PrimAttribs.Values)
                     attr.Dispose();
-                
+
                 m_PrimAttribs.Clear();
 
                 m_VertexToPoint.Clear();

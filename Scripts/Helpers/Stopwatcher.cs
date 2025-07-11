@@ -56,14 +56,38 @@ namespace ViJMeshTools
             }
             return arr;
         }
+        
+        public static Tuple<string, double>[] GetMicroseconds()
+        {
+            var arr = new Tuple<string, double>[mStopwathcersDictionary.Count];
+            int counter = 0;
+            foreach (var swPair in mStopwathcersDictionary)
+            {
+                double microseconds = (double)swPair.Value.ElapsedTicks / System.Diagnostics.Stopwatch.Frequency * 1000000;
+                arr[counter++] = new Tuple<string, double>(swPair.Key, microseconds);
+            }
+            return arr;
+        }
 
-        public static void DebugLog()
+        
+        public static void DebugLogMilliseconds()
         {
             Debug.Log("------");
             var sws = GetMilliseconds();
             foreach (var sw in sws)
             {
                 Debug.Log($"StopwatchKey: {sw.Item1}, milliseconds {sw.Item2}");
+            }
+            Debug.Log("------");
+        }
+
+        public static void DebugLogMicroseconds()
+        {
+            Debug.Log("------");
+            var sws = GetMicroseconds();
+            foreach (var sw in sws)
+            {
+                Debug.Log($"StopwatchKey: {sw.Item1}, microseconds {sw.Item2}");
             }
             Debug.Log("------");
         }

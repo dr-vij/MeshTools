@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Legacy
+namespace PropellerheadMesh
 {
     /// <summary>
     /// Manages attribute IDs with registration and lookup
@@ -10,7 +10,7 @@ namespace Legacy
     /// - Performance monitoring and metrics
     /// - Comprehensive validation and error handling
     /// </summary>
-    public static class AttribID
+    public static class AttributeID
     {
         private static readonly Dictionary<string, int> s_NameToId = new();
         private static readonly Dictionary<int, string> s_IdToName = new();

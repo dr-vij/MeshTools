@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace PropellerHead
+namespace Legacy
 {
     /// <summary>
     /// Represents a geometric primitive with vertex references

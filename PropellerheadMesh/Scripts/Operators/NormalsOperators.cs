@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Unity.Mathematics;
 using Unity.Collections;
 
-namespace PropellerHead.Operators
+namespace Legacy.Operators
 {
     public static class NormalsOperators
     {

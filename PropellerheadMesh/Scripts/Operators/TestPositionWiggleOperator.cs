@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
 
-namespace PropellerHead.Operators
+namespace Legacy.Operators
 {
     /// <summary>
     /// Operator for wiggling/shaking point positions using noise

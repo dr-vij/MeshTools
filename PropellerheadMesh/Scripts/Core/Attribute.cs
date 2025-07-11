@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
-namespace PropellerHead
+namespace Legacy
 {
     /// <summary>
     /// Interface for type-erased attribute access
@@ -46,14 +46,11 @@ namespace PropellerHead
 
         public T Get(long offset)
         {
-            ThrowIfDisposed();
             return m_Values.GetValueOrDefault(offset, m_DefaultValue);
         }
 
         public void Set(long offset, T value)
         {
-            ThrowIfDisposed();
-
             if (EqualityComparer<T>.Default.Equals(value, m_DefaultValue))
             {
                 m_Values.Remove(offset);
@@ -66,13 +63,11 @@ namespace PropellerHead
 
         public bool HasValue(long offset)
         {
-            ThrowIfDisposed();
             return m_Values.ContainsKey(offset);
         }
 
         public void RemoveValue(long offset)
         {
-            ThrowIfDisposed();
             m_Values.Remove(offset);
         }
 
@@ -97,12 +92,6 @@ namespace PropellerHead
             {
                 throw new ArgumentException($"Cannot cast {value.GetType().Name} to {typeof(T).Name}", nameof(value));
             }
-        }
-
-        private void ThrowIfDisposed()
-        {
-            if (m_Disposed)
-                throw new ObjectDisposedException($"Attribute<{typeof(T).Name}>");
         }
 
         public void Dispose()
