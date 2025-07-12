@@ -11,7 +11,7 @@ namespace PropellerheadMesh
         /// <param name="detail">The detail object to add the sphere to</param>
         /// <param name="radius">Radius of the sphere</param>
         /// <param name="subdivisionLevel">Subdivision level (0 and higher)</param>
-        public static void GenerateSphere(this NativeDetail detail, float radius, int subdivisionLevel = 2)
+        public static void GenerateSphere(ref NativeDetail detail, float radius, int subdivisionLevel = 2)
         {
             subdivisionLevel = math.max(0, subdivisionLevel);
 
@@ -63,24 +63,27 @@ namespace PropellerheadMesh
                 midpointCache.Dispose();
             }
 
-            // Add vertices to detail
+            // Add points to detail
             var pointIndices = new NativeArray<int>(vertices.Length, Allocator.Temp);
             for (var i = 0; i < vertices.Length; i++)
             {
                 pointIndices[i] = detail.AddPoint(vertices[i]);
             }
 
-            // Add faces to detail
+            // Create vertices for each point and add faces to detail
             foreach (var face in faces)
             {
-                var facePointIndices = new NativeArray<int>(3, Allocator.Temp);
-                facePointIndices[0] = pointIndices[face.x];
-                facePointIndices[1] = pointIndices[face.y];
-                facePointIndices[2] = pointIndices[face.z];
+                var vertexIndices = new NativeArray<int>(3, Allocator.Temp);
                 
-                detail.AddPrimitive(facePointIndices);
+                // Create vertices that reference the points
+                vertexIndices[0] = detail.AddVertex(pointIndices[face.x]);
+                vertexIndices[1] = detail.AddVertex(pointIndices[face.y]);
+                vertexIndices[2] = detail.AddVertex(pointIndices[face.z]);
                 
-                facePointIndices.Dispose();
+                // Add primitive with vertex indices
+                detail.AddPrimitive(vertexIndices);
+                
+                vertexIndices.Dispose();
             }
 
             // Cleanup

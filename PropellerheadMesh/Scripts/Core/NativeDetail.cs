@@ -59,6 +59,8 @@ namespace PropellerheadMesh
         public int VertexCount => m_VertexCount;
         public int PrimitiveCount => m_PrimitiveCount;
 
+        public EntityManager EntityManager => m_EntityManager;
+
         public NativeDetail(int initialCapacity, EntityManager entityManager, Allocator allocator)
         {
             m_Allocator = allocator;
@@ -485,6 +487,32 @@ namespace PropellerheadMesh
         #endregion
 
         #region Primitive Management
+        
+        /// <summary>
+        /// Gets the primitive entity for a given primitive index
+        /// </summary>
+        /// <param name="primitiveIndex">The primitive index</param>
+        /// <returns>The entity for the primitive, or Entity.Null if not found</returns>
+        public Entity GetPrimitiveEntity(int primitiveIndex)
+        {
+            if (!IsPrimitiveValid(primitiveIndex))
+                return Entity.Null;
+    
+            return m_PrimitiveEntities[primitiveIndex];
+        }
+
+        /// <summary>
+        /// Gets a copy of the primitive entities array for job usage
+        /// </summary>
+        /// <param name="allocator">Allocator for the copy</param>
+        /// <returns>A copy of the primitive entities array</returns>
+        public NativeArray<Entity> GetPrimitiveEntitiesCopy(Allocator allocator)
+        {
+            var copy = new NativeArray<Entity>(m_PrimitiveCapacity, allocator);
+            NativeArray<Entity>.Copy(m_PrimitiveEntities, copy, m_PrimitiveCapacity);
+            return copy;
+        }
+
 
         public int AddPrimitive(NativeArray<int> vertexIndices)
         {

@@ -20,12 +20,10 @@ namespace Legacy
         public float WiggleAmplitude = 0.3f;
         public Vector3 TimeMultiplier = new(0.8f, 0.6f, 0.4f);
         public Vector3 NoiseOffset = new(0.3f, 0.9f, 0.7f);
-        public int Subdivisions = 1;
+        public int Subdivisions = 4;
 
         private void Start()
         {
-            // CreateCube();
-            
             CreateSphere();
             SetupWiggler();
             CalculateNormals();
@@ -95,7 +93,8 @@ namespace Legacy
             }
 
             var stats = m_TestDetail.GetStats();
-            Debug.Log($"Cube created with {stats.PointCount} points, {stats.VertexCount} vertices, {stats.PrimCount} primitives");
+            Debug.Log(
+                $"Cube created with {stats.PointCount} points, {stats.VertexCount} vertices, {stats.PrimCount} primitives");
 
             var detailedStats = m_TestDetail.GetDetailedStats();
             Debug.Log($"Detailed stats: {detailedStats}");
