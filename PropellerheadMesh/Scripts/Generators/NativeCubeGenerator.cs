@@ -7,6 +7,8 @@ namespace PropellerheadMesh
     {
         public static void GenerateCube(ref NativeDetail detail, float3 size, bool calcNormals = false)
         {
+            detail.Clear();
+            
             var half = size * 0.5f;
 
             // Create 8 vertices of a cube
@@ -86,7 +88,7 @@ namespace PropellerheadMesh
                 faceVertexIndices.Dispose();
             }
 
-            // Dispose native arrays
+            // Dispose of native arrays
             cubeVertices.Dispose();
             pointIndices.Dispose();
             faceNormals.Dispose();

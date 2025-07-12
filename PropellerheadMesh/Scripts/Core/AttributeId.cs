@@ -76,16 +76,11 @@ namespace PropellerheadMesh
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Attribute name cannot be null, empty, or whitespace", nameof(name));
 
-            if (name.Length > 64)
+            if (name.Length > 32)
                 throw new ArgumentException("Attribute name cannot exceed 64 characters", nameof(name));
 
             if (name.Contains('\0'))
                 throw new ArgumentException("Attribute name cannot contain null characters", nameof(name));
-
-            // Check for reserved prefixes
-            var trimmed = name.Trim();
-            if (trimmed.StartsWith("__") || trimmed.StartsWith("Unity_"))
-                throw new ArgumentException("Attribute name uses reserved prefix", nameof(name));
         }
 
         /// <summary>
