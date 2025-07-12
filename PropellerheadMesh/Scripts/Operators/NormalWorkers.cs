@@ -9,115 +9,73 @@ using Unity.Mathematics;
 namespace PropellerheadMesh
 {
     /// <summary>
-    /// Burst-compiled job for calculating face normals and vertex normals with smooth angle support
+    /// Ultra-fast direct access normals calculation job
     /// </summary>
     [BurstCompile]
-    public struct NativeNormalsCalculationJob : IJob
+    public struct FastNormalsCalculationJob : IJob
     {
-        // Input data
         [ReadOnly] public NativeArray<int> ValidPrimitives;
         [ReadOnly] public NativeArray<int> ValidVertices;
-        [ReadOnly] public NativeArray<int> VertexToPoint;
-        [ReadOnly] public NativeArray<int> PrimitiveVertexIndices;
-        [ReadOnly] public NativeArray<int> PrimitiveOffsets;
-        [ReadOnly] public NativeArray<int> PrimitiveCounts;
         [ReadOnly] public float SmoothAngle;
         
-        // Accessors
+        // Direct unsafe accessors to NativeDetail data
+        [ReadOnly] [NativeDisableUnsafePtrRestriction] public unsafe void* DetailPtr;
         [ReadOnly] [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> PositionAccessor;
         [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> VertexNormalAccessor;
         [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> PrimitiveNormalAccessor;
         
-        // Temporary arrays for calculations
+        // Pre-allocated working arrays
         [NativeDisableParallelForRestriction] public NativeArray<float3> FaceNormals;
         [NativeDisableParallelForRestriction] public NativeArray<float> FaceAreas;
-        [NativeDisableParallelForRestriction] public NativeHashMap<int, UnsafeList<int>> VertexToPrimitives;
-        [NativeDisableParallelForRestriction] public NativeHashMap<int, UnsafeList<int>> PrimitiveToVertices;
         
-        public void Execute()
+        // Vertex adjacency data - preallocated with max possible size
+        [NativeDisableParallelForRestriction] public NativeArray<int> VertexPrimitiveData; // Packed adjacency data
+        [NativeDisableParallelForRestriction] public NativeArray<int> VertexPrimitiveOffsets; // Offsets for each vertex
+        [NativeDisableParallelForRestriction] public NativeArray<int> VertexPrimitiveCounts; // Count for each vertex
+        
+        public unsafe void Execute()
         {
-            // Step 1: Build vertex-to-primitives and primitive-to-vertices mappings
-            BuildTopologyMappings();
+            var detail = (NativeDetail*)DetailPtr;
             
-            // Step 2: Calculate face normals and areas
-            CalculateFaceNormals();
+            // Step 1: Calculate face normals and build adjacency in single pass
+            BuildFaceNormalsAndAdjacency(detail);
             
-            // Step 3: Calculate vertex normals with smooth angle support
+            // Step 2: Calculate vertex normals using prebuilt adjacency
             CalculateVertexNormals();
         }
         
-        private void BuildTopologyMappings()
+        private unsafe void BuildFaceNormalsAndAdjacency(NativeDetail* detail)
         {
-            // Clear existing mappings
-            VertexToPrimitives.Clear();
-            PrimitiveToVertices.Clear();
+            // Clear adjacency counters
+            UnsafeUtility.MemClear(VertexPrimitiveCounts.GetUnsafePtr(), VertexPrimitiveCounts.Length * sizeof(int));
             
-            // Build mappings for each valid primitive
+            // First pass: calculate face normals and count adjacencies
             for (int i = 0; i < ValidPrimitives.Length; i++)
             {
-                var primitiveIndex = ValidPrimitives[i];
+                var primIndex = ValidPrimitives[i];
+                var buffer = detail->GetPrimitiveVertices(primIndex);
                 
-                if (primitiveIndex >= PrimitiveOffsets.Length || primitiveIndex >= PrimitiveCounts.Length)
-                    continue;
-                
-                var offset = PrimitiveOffsets[primitiveIndex];
-                var count = PrimitiveCounts[primitiveIndex];
-                
-                if (count < 3 || offset + count > PrimitiveVertexIndices.Length)
-                    continue;
-                
-                // Create primitive-to-vertices mapping
-                if (!PrimitiveToVertices.TryGetValue(primitiveIndex, out var primitiveVertices))
+                if (!buffer.IsCreated || buffer.Length < 3)
                 {
-                    primitiveVertices = new UnsafeList<int>(count, Allocator.Temp);
-                    PrimitiveToVertices[primitiveIndex] = primitiveVertices;
-                }
-                
-                // Add vertices to primitive mapping and build reverse mapping
-                for (int j = 0; j < count; j++)
-                {
-                    var vertexIndex = PrimitiveVertexIndices[offset + j];
-                    primitiveVertices.Add(vertexIndex);
-                    
-                    // Add to vertex-to-primitives mapping
-                    if (!VertexToPrimitives.TryGetValue(vertexIndex, out var vertexPrimitives))
-                    {
-                        vertexPrimitives = new UnsafeList<int>(4, Allocator.Temp);
-                        VertexToPrimitives[vertexIndex] = vertexPrimitives;
-                    }
-                    
-                    vertexPrimitives.Add(primitiveIndex);
-                }
-            }
-        }
-        
-        private void CalculateFaceNormals()
-        {
-            for (int i = 0; i < ValidPrimitives.Length; i++)
-            {
-                var primitiveIndex = ValidPrimitives[i];
-                
-                if (!PrimitiveToVertices.TryGetValue(primitiveIndex, out var vertices) || vertices.Length < 3)
-                {
-                    FaceNormals[primitiveIndex] = float3.zero;
-                    FaceAreas[primitiveIndex] = 0f;
+                    FaceNormals[primIndex] = float3.zero;
+                    FaceAreas[primIndex] = 0f;
+                    PrimitiveNormalAccessor[primIndex] = float3.zero;
                     continue;
                 }
                 
                 // Get first three vertices for normal calculation
-                var vertex0 = vertices[0];
-                var vertex1 = vertices[1];
-                var vertex2 = vertices[2];
-                
-                // Get point indices
-                var point0 = VertexToPoint[vertex0];
-                var point1 = VertexToPoint[vertex1];
-                var point2 = VertexToPoint[vertex2];
+                var v0 = buffer[0].VertexIndex;
+                var v1 = buffer[1].VertexIndex;
+                var v2 = buffer[2].VertexIndex;
                 
                 // Get positions
-                var pos0 = PositionAccessor[point0];
-                var pos1 = PositionAccessor[point1];
-                var pos2 = PositionAccessor[point2];
+                var p0 = detail->GetVertexPoint(v0);
+                var p1 = detail->GetVertexPoint(v1);
+                var p2 = detail->GetVertexPoint(v2);
+                
+                var pos0 = PositionAccessor[p0];
+                var pos1 = PositionAccessor[p1];
+                var pos2 = PositionAccessor[p2];
                 
                 // Calculate face normal and area
                 var edge1 = pos1 - pos0;
@@ -126,11 +84,54 @@ namespace PropellerheadMesh
                 var area = math.length(cross) * 0.5f;
                 var normal = math.select(math.normalize(cross), float3.zero, area < 1e-7f);
                 
-                FaceNormals[primitiveIndex] = normal;
-                FaceAreas[primitiveIndex] = area;
+                FaceNormals[primIndex] = normal;
+                FaceAreas[primIndex] = area;
+                PrimitiveNormalAccessor[primIndex] = normal;
                 
-                // Set primitive normal attribute
-                PrimitiveNormalAccessor[primitiveIndex] = normal;
+                // Count adjacencies for each vertex in this primitive
+                for (int j = 0; j < buffer.Length; j++)
+                {
+                    var vertexIndex = buffer[j].VertexIndex;
+                    if (vertexIndex < VertexPrimitiveCounts.Length)
+                    {
+                        VertexPrimitiveCounts[vertexIndex]++;
+                    }
+                }
+            }
+            
+            // Calculate offsets for packed adjacency data
+            int currentOffset = 0;
+            for (int i = 0; i < VertexPrimitiveOffsets.Length; i++)
+            {
+                VertexPrimitiveOffsets[i] = currentOffset;
+                currentOffset += VertexPrimitiveCounts[i];
+                VertexPrimitiveCounts[i] = 0; // Reset for second pass
+            }
+            
+            // Second pass: fill adjacency data
+            for (int i = 0; i < ValidPrimitives.Length; i++)
+            {
+                var primIndex = ValidPrimitives[i];
+                var buffer = detail->GetPrimitiveVertices(primIndex);
+                
+                if (!buffer.IsCreated || buffer.Length < 3)
+                    continue;
+                
+                for (int j = 0; j < buffer.Length; j++)
+                {
+                    var vertexIndex = buffer[j].VertexIndex;
+                    if (vertexIndex < VertexPrimitiveOffsets.Length)
+                    {
+                        var offset = VertexPrimitiveOffsets[vertexIndex];
+                        var count = VertexPrimitiveCounts[vertexIndex];
+                        
+                        if (offset + count < VertexPrimitiveData.Length)
+                        {
+                            VertexPrimitiveData[offset + count] = primIndex;
+                            VertexPrimitiveCounts[vertexIndex]++;
+                        }
+                    }
+                }
             }
         }
         
@@ -140,52 +141,54 @@ namespace PropellerheadMesh
             {
                 var vertexIndex = ValidVertices[i];
                 
-                if (!VertexToPrimitives.TryGetValue(vertexIndex, out var adjacentPrimitives))
+                if (vertexIndex >= VertexPrimitiveOffsets.Length || vertexIndex >= VertexPrimitiveCounts.Length)
                 {
                     VertexNormalAccessor[vertexIndex] = new float3(0, 1, 0);
                     continue;
                 }
                 
-                var primitiveCount = adjacentPrimitives.Length;
+                var offset = VertexPrimitiveOffsets[vertexIndex];
+                var count = VertexPrimitiveCounts[vertexIndex];
                 
-                if (primitiveCount == 0)
+                if (count == 0)
                 {
                     VertexNormalAccessor[vertexIndex] = new float3(0, 1, 0);
                     continue;
                 }
                 
-                if (primitiveCount == 1)
+                if (count == 1)
                 {
                     // Single face - use face normal
-                    var primIndex = adjacentPrimitives[0];
+                    var primIndex = VertexPrimitiveData[offset];
                     VertexNormalAccessor[vertexIndex] = FaceNormals[primIndex];
                     continue;
                 }
                 
                 // Multiple faces - calculate smooth normal with angle consideration
-                var vertexNormal = CalculateSmoothedVertexNormal(vertexIndex, adjacentPrimitives);
+                var vertexNormal = CalculateSmoothedVertexNormal(offset, count);
                 VertexNormalAccessor[vertexIndex] = vertexNormal;
             }
         }
         
-        private float3 CalculateSmoothedVertexNormal(int vertexIndex, UnsafeList<int> adjacentPrimitives)
+        private float3 CalculateSmoothedVertexNormal(int offset, int count)
         {
             var smoothNormal = float3.zero;
             var totalWeight = 0f;
             var hasHardEdges = false;
             
-            // Check for hard edges first
-            for (int i = 0; i < adjacentPrimitives.Length; i++)
+            // Check for hard edges first (optimized)
+            for (int i = 0; i < count && !hasHardEdges; i++)
             {
-                var primIndex1 = adjacentPrimitives[i];
+                var primIndex1 = VertexPrimitiveData[offset + i];
                 var normal1 = FaceNormals[primIndex1];
                 
-                for (int j = i + 1; j < adjacentPrimitives.Length; j++)
+                for (int j = i + 1; j < count; j++)
                 {
-                    var primIndex2 = adjacentPrimitives[j];
+                    var primIndex2 = VertexPrimitiveData[offset + j];
                     var normal2 = FaceNormals[primIndex2];
                     
-                    var angle = math.acos(math.clamp(math.dot(normal1, normal2), -1f, 1f));
+                    var dot = math.dot(normal1, normal2);
+                    var angle = math.acos(math.clamp(dot, -1f, 1f));
                     
                     if (angle > SmoothAngle)
                     {
@@ -193,9 +196,6 @@ namespace PropellerheadMesh
                         break;
                     }
                 }
-                
-                if (hasHardEdges)
-                    break;
             }
             
             if (hasHardEdges)
@@ -204,9 +204,9 @@ namespace PropellerheadMesh
                 var maxArea = 0f;
                 var dominantNormal = new float3(0, 1, 0);
                 
-                for (int i = 0; i < adjacentPrimitives.Length; i++)
+                for (int i = 0; i < count; i++)
                 {
-                    var primIndex = adjacentPrimitives[i];
+                    var primIndex = VertexPrimitiveData[offset + i];
                     var area = FaceAreas[primIndex];
                     
                     if (area > maxArea)
@@ -219,12 +219,12 @@ namespace PropellerheadMesh
                 return dominantNormal;
             }
             
-            // Smooth all faces together
-            for (int i = 0; i < adjacentPrimitives.Length; i++)
+            // Smooth all faces together - simplified weighting
+            for (int i = 0; i < count; i++)
             {
-                var primIndex = adjacentPrimitives[i];
+                var primIndex = VertexPrimitiveData[offset + i];
                 var faceNormal = FaceNormals[primIndex];
-                var weight = CalculateVertexWeightInFace(vertexIndex, primIndex);
+                var weight = FaceAreas[primIndex]; // Use area as weight for simplicity
                 
                 smoothNormal += faceNormal * weight;
                 totalWeight += weight;
@@ -238,69 +238,17 @@ namespace PropellerheadMesh
             
             return new float3(0, 1, 0);
         }
-        
-        private float CalculateVertexWeightInFace(int vertexIndex, int primitiveIndex)
-        {
-            if (!PrimitiveToVertices.TryGetValue(primitiveIndex, out var vertices))
-                return 1f;
-            
-            var vertexCount = vertices.Length;
-            if (vertexCount < 3)
-                return 1f;
-            
-            // Find vertex index in the primitive
-            var localVertexIndex = -1;
-            for (int i = 0; i < vertexCount; i++)
-            {
-                if (vertices[i] == vertexIndex)
-                {
-                    localVertexIndex = i;
-                    break;
-                }
-            }
-            
-            if (localVertexIndex == -1)
-                return 1f;
-            
-            // Calculate angle at this vertex
-            var prevIndex = (localVertexIndex - 1 + vertexCount) % vertexCount;
-            var nextIndex = (localVertexIndex + 1) % vertexCount;
-            
-            var currentVertex = vertices[localVertexIndex];
-            var prevVertex = vertices[prevIndex];
-            var nextVertex = vertices[nextIndex];
-            
-            var pointCurrent = VertexToPoint[currentVertex];
-            var pointPrev = VertexToPoint[prevVertex];
-            var pointNext = VertexToPoint[nextVertex];
-            
-            var posCurrent = PositionAccessor[pointCurrent];
-            var posPrev = PositionAccessor[pointPrev];
-            var posNext = PositionAccessor[pointNext];
-            
-            var edge1 = math.normalize(posPrev - posCurrent);
-            var edge2 = math.normalize(posNext - posCurrent);
-            
-            var angle = math.acos(math.clamp(math.dot(edge1, edge2), -1f, 1f));
-            
-            // Use angle as weight - larger angles contribute more
-            return math.max(angle, 0.1f);
-        }
     }
     
     /// <summary>
-    /// Native normals calculation operator for NativeDetail
+    /// Optimized native normals calculation operator
     /// </summary>
     public static class NativeNormalsOperators
     {
         /// <summary>
-        /// Calculates and sets vertex and primitive normals based on face angles
+        /// Ultra-fast normals calculation using direct memory access
         /// </summary>
-        /// <param name="detail">The NativeDetail containing the geometry</param>
-        /// <param name="smoothAngle">The maximum angle (in radians) between faces to consider them smooth</param>
-        /// <param name="dependency">Job dependency</param>
-        /// <returns>Job handle for the normals calculation operation</returns>
-        public static JobHandle CalculateNormals(ref NativeDetail detail, float smoothAngle = math.PI / 3f, JobHandle dependency = default)
+        public static unsafe JobHandle CalculateNormals(ref NativeDetail detail, float smoothAngle = math.PI / 3f, JobHandle dependency = default)
         {
             // Ensure normal attributes exist
             if (!detail.HasVertexAttribute(AttributeID.Normal))
@@ -320,136 +268,88 @@ namespace PropellerheadMesh
                 return dependency;
             
             // Get valid elements
-            var validPrimitives = new NativeList<int>(detail.PrimitiveCount, Allocator.TempJob);
-            var validVertices = new NativeList<int>(detail.VertexCount, Allocator.TempJob);
+            var validPrimitives = new NativeArray<int>(detail.PrimitiveCount, Allocator.TempJob);
+            var validVertices = new NativeArray<int>(detail.VertexCount, Allocator.TempJob);
             
-            detail.GetAllValidPrimitives(validPrimitives);
-            detail.GetAllValidVertices(validVertices);
+            int primCount = 0;
+            int vertCount = 0;
             
-            // Create temporary arrays for calculations
-            var faceNormals = new NativeArray<float3>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
-            var faceAreas = new NativeArray<float>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
-            var vertexToPrimitives = new NativeHashMap<int, UnsafeList<int>>(detail.VertexCount, Allocator.TempJob);
-            var primitiveToVertices = new NativeHashMap<int, UnsafeList<int>>(detail.PrimitiveCount, Allocator.TempJob);
-            
-            // Get vertex to point mapping
-            var vertexToPoint = new NativeArray<int>(math.max(detail.VertexCount, 1), Allocator.TempJob);
-            for (int i = 0; i < validVertices.Length; i++)
+            // Fill valid arrays directly
+            for (int i = 0; i < detail.PrimitiveCount; i++)
             {
-                var vertexIndex = validVertices[i];
-                var pointIndex = detail.GetVertexPoint(vertexIndex);
-                if (pointIndex >= 0 && vertexIndex < vertexToPoint.Length)
+                if (detail.IsPrimitiveValid(i))
                 {
-                    vertexToPoint[vertexIndex] = pointIndex;
+                    validPrimitives[primCount++] = i;
                 }
             }
             
-            // Flatten primitive vertex data
-            var (primitiveVertexIndices, primitiveOffsets, primitiveCounts) = FlattenPrimitiveData(ref detail, validPrimitives);
+            for (int i = 0; i < detail.VertexCount; i++)
+            {
+                if (detail.IsVertexValid(i))
+                {
+                    validVertices[vertCount++] = i;
+                }
+            }
+            
+            // Resize arrays to actual count
+            var actualValidPrimitives = new NativeArray<int>(primCount, Allocator.TempJob);
+            var actualValidVertices = new NativeArray<int>(vertCount, Allocator.TempJob);
+            
+            UnsafeUtility.MemCpy(actualValidPrimitives.GetUnsafePtr(), validPrimitives.GetUnsafePtr(), primCount * sizeof(int));
+            UnsafeUtility.MemCpy(actualValidVertices.GetUnsafePtr(), validVertices.GetUnsafePtr(), vertCount * sizeof(int));
+            
+            validPrimitives.Dispose();
+            validVertices.Dispose();
+            
+            // Estimate maximum adjacency data size (conservative estimate)
+            var maxAdjacencySize = math.max(primCount * 6, 1024); // Assume max 6 primitives per vertex on average
+            
+            // Create working arrays
+            var faceNormals = new NativeArray<float3>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
+            var faceAreas = new NativeArray<float>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
+            var vertexPrimitiveData = new NativeArray<int>(maxAdjacencySize, Allocator.TempJob);
+            var vertexPrimitiveOffsets = new NativeArray<int>(math.max(detail.VertexCount, 1), Allocator.TempJob);
+            var vertexPrimitiveCounts = new NativeArray<int>(math.max(detail.VertexCount, 1), Allocator.TempJob);
+            
+            // Get unsafe pointer to NativeDetail
+            var detailPtr = UnsafeUtility.AddressOf(ref detail);
             
             // Create and schedule the job
-            var job = new NativeNormalsCalculationJob
+            var job = new FastNormalsCalculationJob
             {
-                ValidPrimitives = validPrimitives.AsArray(),
-                ValidVertices = validVertices.AsArray(),
-                VertexToPoint = vertexToPoint,
-                PrimitiveVertexIndices = primitiveVertexIndices,
-                PrimitiveOffsets = primitiveOffsets,
-                PrimitiveCounts = primitiveCounts,
+                ValidPrimitives = actualValidPrimitives,
+                ValidVertices = actualValidVertices,
                 SmoothAngle = smoothAngle,
+                DetailPtr = detailPtr,
                 PositionAccessor = positionAccessor,
                 VertexNormalAccessor = vertexNormalAccessor,
                 PrimitiveNormalAccessor = primitiveNormalAccessor,
                 FaceNormals = faceNormals,
                 FaceAreas = faceAreas,
-                VertexToPrimitives = vertexToPrimitives,
-                PrimitiveToVertices = primitiveToVertices
+                VertexPrimitiveData = vertexPrimitiveData,
+                VertexPrimitiveOffsets = vertexPrimitiveOffsets,
+                VertexPrimitiveCounts = vertexPrimitiveCounts
             };
             
             var handle = job.Schedule(dependency);
             
-            // Cleanup в main thread после завершения job
+            // Cleanup resources after job completion
             handle.Complete();
             
-            // Dispose UnsafeLists in hash maps
-            foreach (var kvp in vertexToPrimitives)
-            {
-                kvp.Value.Dispose();
-            }
-            vertexToPrimitives.Dispose();
-            
-            foreach (var kvp in primitiveToVertices)
-            {
-                kvp.Value.Dispose();
-            }
-            primitiveToVertices.Dispose();
-            
-            // Dispose other arrays
+            actualValidPrimitives.Dispose();
+            actualValidVertices.Dispose();
             faceNormals.Dispose();
             faceAreas.Dispose();
-            primitiveVertexIndices.Dispose();
-            primitiveOffsets.Dispose();
-            primitiveCounts.Dispose();
-            validPrimitives.Dispose();
-            validVertices.Dispose();
-            vertexToPoint.Dispose();
+            vertexPrimitiveData.Dispose();
+            vertexPrimitiveOffsets.Dispose();
+            vertexPrimitiveCounts.Dispose();
             
             return handle;
         }
         
         /// <summary>
-        /// Flattens primitive vertex data into simple arrays for job processing
-        /// </summary>
-        private static (NativeArray<int> vertexIndices, NativeArray<int> offsets, NativeArray<int> counts) 
-            FlattenPrimitiveData(ref NativeDetail detail, NativeList<int> validPrimitives)
-        {
-            // First pass: calculate total size needed
-            var totalVertexCount = 0;
-            for (int i = 0; i < validPrimitives.Length; i++)
-            {
-                var primIndex = validPrimitives[i];
-                var buffer = detail.GetPrimitiveVertices(primIndex);
-                if (buffer.IsCreated)
-                {
-                    totalVertexCount += buffer.Length;
-                }
-            }
-            
-            // Create arrays
-            var vertexIndices = new NativeArray<int>(math.max(totalVertexCount, 1), Allocator.TempJob);
-            var offsets = new NativeArray<int>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
-            var counts = new NativeArray<int>(math.max(detail.PrimitiveCount, 1), Allocator.TempJob);
-            
-            // Second pass: fill arrays
-            var currentOffset = 0;
-            for (int i = 0; i < validPrimitives.Length; i++)
-            {
-                var primIndex = validPrimitives[i];
-                var buffer = detail.GetPrimitiveVertices(primIndex);
-                
-                if (buffer.IsCreated && primIndex < offsets.Length && primIndex < counts.Length)
-                {
-                    offsets[primIndex] = currentOffset;
-                    counts[primIndex] = buffer.Length;
-                    
-                    // Copy vertex indices
-                    for (int j = 0; j < buffer.Length && currentOffset + j < vertexIndices.Length; j++)
-                    {
-                        vertexIndices[currentOffset + j] = buffer[j].VertexIndex;
-                    }
-                    
-                    currentOffset += buffer.Length;
-                }
-            }
-            
-            return (vertexIndices, offsets, counts);
-        }
-        
-        /// <summary>
         /// Converts degrees to radians for smooth angle parameter
         /// </summary>
-        /// <param name="degrees">Angle in degrees</param>
-        /// <returns>Angle in radians</returns>
         public static float DegreesToRadians(float degrees)
         {
             return degrees * math.PI / 180f;
@@ -458,9 +358,6 @@ namespace PropellerheadMesh
         /// <summary>
         /// Gets the current normal for a vertex
         /// </summary>
-        /// <param name="detail">The NativeDetail</param>
-        /// <param name="vertexIndex">The vertex index</param>
-        /// <returns>The current normal, or zero if not found</returns>
         public static float3 GetVertexNormal(ref NativeDetail detail, int vertexIndex)
         {
             return detail.GetVertexAttribute<float3>(vertexIndex, AttributeID.Normal);
@@ -469,9 +366,6 @@ namespace PropellerheadMesh
         /// <summary>
         /// Gets the current normal for a primitive
         /// </summary>
-        /// <param name="detail">The NativeDetail</param>
-        /// <param name="primitiveIndex">The primitive index</param>
-        /// <returns>The current normal, or zero if not found</returns>
         public static float3 GetPrimitiveNormal(ref NativeDetail detail, int primitiveIndex)
         {
             return detail.GetPrimitiveAttribute<float3>(primitiveIndex, AttributeID.Normal);
