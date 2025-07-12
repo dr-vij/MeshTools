@@ -1,493 +1,693 @@
 using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Burst;
 
 namespace PropellerheadMesh
 {
+    [InternalBufferCapacity(8)]
+    public struct PrimitiveVertexElement : IBufferElementData
+    {
+        public int VertexIndex;
+
+        public static implicit operator int(PrimitiveVertexElement element) => element.VertexIndex;
+        public static implicit operator PrimitiveVertexElement(int vertexIndex) => new() { VertexIndex = vertexIndex };
+    }
+
+
+    [BurstCompile]
     public struct NativeDetail : IDisposable
     {
-        private bool m_Disposed;
+        private bool m_IsDisposed;
         private readonly Allocator m_Allocator;
 
-        private AttributeMap m_PointAttribs;
-        private AttributeMap m_VertexAttribs;
-        private AttributeMap m_PrimAttribs;
-
-        private NativeList<int> m_VertexToPoint;
-        private NativeList<int> m_PointToVerticesData;
-        private NativeList<int> m_PointToVerticesStarts;
-        private NativeList<int> m_PointToVerticesCounts;
-        
-        private NativeList<int> m_VertexToPrimitivesData;
-        private NativeList<int> m_VertexToPrimitivesStarts;
-        private NativeList<int> m_VertexToPrimitivesCounts;
-
-        private NativeList<int> m_PrimPointIndices;
-        private NativeList<int> m_PrimStarts;
-        private NativeList<int> m_PrimCounts;
-
-        private NativeList<int> m_FreePointIndices;
-        private NativeList<int> m_FreeVertexIndices;
-        private NativeList<int> m_FreePrimIndices;
-
+        // Core validity tracking
         private NativeBitArray m_ValidPoints;
         private NativeBitArray m_ValidVertices;
         private NativeBitArray m_ValidPrimitives;
 
+        // Free indices management
+        private NativeList<int> m_FreePointIndices;
+        private NativeList<int> m_FreeVertexIndices;
+        private NativeList<int> m_FreePrimIndices;
+
+        // Attributes
+        private AttributeMap m_PointAttributes;
+        private AttributeMap m_VertexAttributes;
+        private AttributeMap m_PrimitiveAttributes;
+
+        // Relationships
+        private NativeArray<int> m_VertexToPoint; // vertex index -> point index
+
+        // ECS for primitives
+        private EntityManager m_EntityManager;
+        private NativeArray<Entity> m_PrimitiveEntities;
+
+        // Capacity tracking
+        private int m_PointCapacity;
+        private int m_VertexCapacity;
+        private int m_PrimitiveCapacity;
+
+        // Counts
         private int m_PointCount;
         private int m_VertexCount;
-        private int m_PrimCount;
+        private int m_PrimitiveCount;
 
-        public NativeDetail(int initialCapacity, Allocator allocator)
+        public int PointCount => m_PointCount;
+        public int VertexCount => m_VertexCount;
+        public int PrimitiveCount => m_PrimitiveCount;
+
+        public NativeDetail(int initialCapacity, EntityManager entityManager, Allocator allocator)
         {
-            m_Disposed = false;
             m_Allocator = allocator;
+            m_IsDisposed = false;
+            m_EntityManager = entityManager;
 
-            m_PointCount = m_VertexCount = m_PrimCount = 0;
+            // Initialize capacities
+            m_PointCapacity = initialCapacity;
+            m_VertexCapacity = initialCapacity;
+            m_PrimitiveCapacity = initialCapacity;
 
-            m_PointAttribs = new AttributeMap(8, allocator);
-            m_VertexAttribs = new AttributeMap(8, allocator);
-            m_PrimAttribs = new AttributeMap(8, allocator);
+            // Initialize validity tracking
+            m_ValidPoints = new NativeBitArray(m_PointCapacity, allocator);
+            m_ValidVertices = new NativeBitArray(m_VertexCapacity, allocator);
+            m_ValidPrimitives = new NativeBitArray(m_PrimitiveCapacity, allocator);
 
-            m_VertexToPoint = new NativeList<int>(initialCapacity, allocator);
-            
-            m_PointToVerticesData = new NativeList<int>(initialCapacity * 2, allocator);
-            m_PointToVerticesStarts = new NativeList<int>(initialCapacity, allocator);
-            m_PointToVerticesCounts = new NativeList<int>(initialCapacity, allocator);
-
-            m_VertexToPrimitivesData = new NativeList<int>(initialCapacity * 2, allocator);
-            m_VertexToPrimitivesStarts = new NativeList<int>(initialCapacity, allocator);
-            m_VertexToPrimitivesCounts = new NativeList<int>(initialCapacity, allocator);
-
-            m_PrimPointIndices = new NativeList<int>(initialCapacity * 4, allocator);
-            m_PrimStarts = new NativeList<int>(initialCapacity, allocator);
-            m_PrimCounts = new NativeList<int>(initialCapacity, allocator);
-
+            // Initialize free indices
             m_FreePointIndices = new NativeList<int>(allocator);
             m_FreeVertexIndices = new NativeList<int>(allocator);
             m_FreePrimIndices = new NativeList<int>(allocator);
 
-            m_ValidPoints = new NativeBitArray(initialCapacity, allocator);
-            m_ValidVertices = new NativeBitArray(initialCapacity, allocator);
-            m_ValidPrimitives = new NativeBitArray(initialCapacity, allocator);
+            // Initialize attributes
+            m_PointAttributes = new AttributeMap(8, allocator);
+            m_VertexAttributes = new AttributeMap(8, allocator);
+            m_PrimitiveAttributes = new AttributeMap(8, allocator);
 
-            m_PointAttribs.RegisterAttribute<float3>(AttributeID.Position, initialCapacity);
+            // Initialize relationships
+            m_VertexToPoint = new NativeArray<int>(m_VertexCapacity, allocator);
+
+            // Initialize ECS
+            m_PrimitiveEntities = new NativeArray<Entity>(m_PrimitiveCapacity, allocator);
+
+            // Initialize counts
+            m_PointCount = 0;
+            m_VertexCount = 0;
+            m_PrimitiveCount = 0;
+
+            // Register mandatory Position attribute
+            m_PointAttributes.RegisterAttribute<float3>(AttributeID.Position, m_PointCapacity);
         }
 
-        public bool PointExists(int pointIndex) => pointIndex < m_ValidPoints.Length && m_ValidPoints.IsSet(pointIndex);
-        public bool VertexExists(int vertexIndex) => vertexIndex < m_ValidVertices.Length && m_ValidVertices.IsSet(vertexIndex);
-        public bool PrimitiveExists(int primIndex) => primIndex < m_ValidPrimitives.Length && m_ValidPrimitives.IsSet(primIndex);
+        #region Capacity Management
 
-        public int PointCount => m_PointCount - m_FreePointIndices.Length;
-        public int VertexCount => m_VertexCount - m_FreeVertexIndices.Length;
-        public int PrimitiveCount => m_PrimCount - m_FreePrimIndices.Length;
-
-        public AttributeMapResult AddPointAttrib<T>(int attributeId, int capacity) where T : unmanaged
+        private void EnsurePointCapacity(int requiredCapacity)
         {
-            return m_PointAttribs.RegisterAttribute<T>(attributeId, capacity);
+            if (requiredCapacity <= m_PointCapacity)
+                return;
+
+            int newCapacity = m_PointCapacity;
+            while (newCapacity < requiredCapacity)
+                newCapacity *= 2;
+
+            // Resize validity tracking
+            var newValidPoints = new NativeBitArray(newCapacity, m_Allocator);
+            for (int i = 0; i < m_PointCapacity; i++)
+            {
+                newValidPoints.Set(i, m_ValidPoints.IsSet(i));
+            }
+
+            m_ValidPoints.Dispose();
+            m_ValidPoints = newValidPoints;
+
+            // Resize attributes
+            m_PointAttributes.ResizeAllAttributes(newCapacity);
+
+            m_PointCapacity = newCapacity;
         }
 
-        public AttributeMapResult AddVertexAttrib<T>(int attributeId, int capacity) where T : unmanaged
+        private void EnsureVertexCapacity(int requiredCapacity)
         {
-            return m_VertexAttribs.RegisterAttribute<T>(attributeId, capacity);
+            if (requiredCapacity <= m_VertexCapacity)
+                return;
+
+            int newCapacity = m_VertexCapacity;
+            while (newCapacity < requiredCapacity)
+                newCapacity *= 2;
+
+            // Resize validity tracking
+            var newValidVertices = new NativeBitArray(newCapacity, m_Allocator);
+            for (int i = 0; i < m_VertexCapacity; i++)
+            {
+                newValidVertices.Set(i, m_ValidVertices.IsSet(i));
+            }
+
+            m_ValidVertices.Dispose();
+            m_ValidVertices = newValidVertices;
+
+            // Resize vertex to point mapping
+            var newVertexToPoint = new NativeArray<int>(newCapacity, m_Allocator);
+            NativeArray<int>.Copy(m_VertexToPoint, newVertexToPoint, m_VertexCapacity);
+            m_VertexToPoint.Dispose();
+            m_VertexToPoint = newVertexToPoint;
+
+            // Resize attributes
+            m_VertexAttributes.ResizeAllAttributes(newCapacity);
+
+            m_VertexCapacity = newCapacity;
         }
 
-        public AttributeMapResult AddPrimAttrib<T>(int attributeId, int capacity) where T : unmanaged
+        private void EnsurePrimitiveCapacity(int requiredCapacity)
         {
-            return m_PrimAttribs.RegisterAttribute<T>(attributeId, capacity);
+            if (requiredCapacity <= m_PrimitiveCapacity)
+                return;
+
+            int newCapacity = m_PrimitiveCapacity;
+            while (newCapacity < requiredCapacity)
+                newCapacity *= 2;
+
+            // Resize validity tracking
+            var newValidPrimitives = new NativeBitArray(newCapacity, m_Allocator);
+            for (int i = 0; i < m_PrimitiveCapacity; i++)
+            {
+                newValidPrimitives.Set(i, m_ValidPrimitives.IsSet(i));
+            }
+
+            m_ValidPrimitives.Dispose();
+            m_ValidPrimitives = newValidPrimitives;
+
+            // Resize primitive entities
+            var newPrimitiveEntities = new NativeArray<Entity>(newCapacity, m_Allocator);
+            NativeArray<Entity>.Copy(m_PrimitiveEntities, newPrimitiveEntities, m_PrimitiveCapacity);
+            m_PrimitiveEntities.Dispose();
+            m_PrimitiveEntities = newPrimitiveEntities;
+
+            // Resize attributes
+            m_PrimitiveAttributes.ResizeAllAttributes(newCapacity);
+
+            m_PrimitiveCapacity = newCapacity;
         }
 
-        public NativeAttributeAccessor<T> GetPointAccessor<T>(int attributeId) where T : unmanaged
+        #endregion
+
+        #region Attribute Management
+
+        public AttributeMapResult AddPointAttribute<T>(int attributeId) where T : unmanaged
         {
-            return m_PointAttribs.GetAccessorUnchecked<T>(attributeId);
+            return m_PointAttributes.RegisterAttribute<T>(attributeId, m_PointCapacity);
         }
 
-        public NativeAttributeAccessor<T> GetVertexAccessor<T>(int attributeId) where T : unmanaged
+        public AttributeMapResult AddVertexAttribute<T>(int attributeId) where T : unmanaged
         {
-            return m_VertexAttribs.GetAccessorUnchecked<T>(attributeId);
+            return m_VertexAttributes.RegisterAttribute<T>(attributeId, m_VertexCapacity);
         }
 
-        public NativeAttributeAccessor<T> GetPrimAccessor<T>(int attributeId) where T : unmanaged
+        public AttributeMapResult AddPrimitiveAttribute<T>(int attributeId) where T : unmanaged
         {
-            return m_PrimAttribs.GetAccessorUnchecked<T>(attributeId);
+            return m_PrimitiveAttributes.RegisterAttribute<T>(attributeId, m_PrimitiveCapacity);
         }
 
-        public AttributeMapResult RemovePointAttrib(int attributeId)
+        public AttributeMapResult RemovePointAttribute(int attributeId)
         {
-            return m_PointAttribs.RemoveAttribute(attributeId);
+            if (attributeId == AttributeID.Position)
+                return AttributeMapResult.AttributeNotFound; // Cannot remove position
+
+            return m_PointAttributes.RemoveAttribute(attributeId);
         }
 
-        public AttributeMapResult RemoveVertexAttrib(int attributeId)
+        public AttributeMapResult RemoveVertexAttribute(int attributeId)
         {
-            return m_VertexAttribs.RemoveAttribute(attributeId);
+            return m_VertexAttributes.RemoveAttribute(attributeId);
         }
 
-        public AttributeMapResult RemovePrimAttrib(int attributeId)
+        public AttributeMapResult RemovePrimitiveAttribute(int attributeId)
         {
-            return m_PrimAttribs.RemoveAttribute(attributeId);
+            return m_PrimitiveAttributes.RemoveAttribute(attributeId);
         }
 
-        public int AddPoint(float3 pos)
+        public AttributeMapResult GetPointAttributeAccessor<T>(int attributeId, out NativeAttributeAccessor<T> accessor)
+            where T : unmanaged
         {
-            int index = AllocatePointIndex();
-            m_ValidPoints.Set(index, true);
+            return m_PointAttributes.TryGetAccessor(attributeId, out accessor);
+        }
 
-            var posAccessor = m_PointAttribs.GetAccessorUnchecked<float3>(AttributeID.Position);
-            posAccessor[index] = pos;
+        public AttributeMapResult GetVertexAttributeAccessor<T>(int attributeId,
+            out NativeAttributeAccessor<T> accessor) where T : unmanaged
+        {
+            return m_VertexAttributes.TryGetAccessor(attributeId, out accessor);
+        }
 
-            EnsurePointToVerticesCapacity(index);
-            m_PointToVerticesStarts[index] = m_PointToVerticesData.Length;
-            m_PointToVerticesCounts[index] = 0;
+        public AttributeMapResult GetPrimitiveAttributeAccessor<T>(int attributeId, out NativeAttributeAccessor<T> accessor) where T : unmanaged
+        {
+            return m_PrimitiveAttributes.TryGetAccessor(attributeId, out accessor);
+        }
 
-            return index;
+        public bool HasPointAttribute(int attributeId) => m_PointAttributes.ContainsAttribute(attributeId);
+        public bool HasVertexAttribute(int attributeId) => m_VertexAttributes.ContainsAttribute(attributeId);
+        public bool HasPrimitiveAttribute(int attributeId) => m_PrimitiveAttributes.ContainsAttribute(attributeId);
+
+        public T GetPointAttribute<T>(int pointIndex, int attributeId) where T : unmanaged
+        {
+            if (!IsPointValid(pointIndex))
+                return default;
+
+            if (m_PointAttributes.TryGetAccessor<T>(attributeId, out var accessor) == AttributeMapResult.Success)
+                return accessor[pointIndex];
+
+            return default;
+        }
+
+        public bool SetPointAttribute<T>(int pointIndex, int attributeId, T value) where T : unmanaged
+        {
+            if (!IsPointValid(pointIndex))
+                return false;
+
+            if (m_PointAttributes.TryGetAccessor<T>(attributeId, out var accessor) != AttributeMapResult.Success)
+                return false;
+            
+            accessor[pointIndex] = value;
+            return true;
+        }
+
+        public T GetVertexAttribute<T>(int vertexIndex, int attributeId) where T : unmanaged
+        {
+            if (!IsVertexValid(vertexIndex))
+                return default;
+
+            if (m_VertexAttributes.TryGetAccessor<T>(attributeId, out var accessor) == AttributeMapResult.Success)
+            {
+                return accessor[vertexIndex];
+            }
+
+            return default;
+        }
+
+        public bool SetVertexAttribute<T>(int vertexIndex, int attributeId, T value) where T : unmanaged
+        {
+            if (!IsVertexValid(vertexIndex))
+                return false;
+
+            if (m_VertexAttributes.TryGetAccessor<T>(attributeId, out var accessor) != AttributeMapResult.Success)
+                return false;
+
+            accessor[vertexIndex] = value;
+            return true;
+        }
+
+        public T GetPrimitiveAttribute<T>(int primitiveIndex, int attributeId) where T : unmanaged
+        {
+            if (!IsPrimitiveValid(primitiveIndex))
+                return default;
+
+            if (m_PrimitiveAttributes.TryGetAccessor<T>(attributeId, out var accessor) == AttributeMapResult.Success)
+                return accessor[primitiveIndex];
+
+            return default;
+        }
+
+        public bool SetPrimitiveAttribute<T>(int primitiveIndex, int attributeId, T value) where T : unmanaged
+        {
+            if (!IsPrimitiveValid(primitiveIndex))
+                return false;
+
+            if (m_PrimitiveAttributes.TryGetAccessor<T>(attributeId, out var accessor) != AttributeMapResult.Success)
+                return false;
+
+            accessor[primitiveIndex] = value;
+            return true;
+        }
+
+        #endregion
+
+        #region Point Management
+
+        public int AddPoint(float3 position)
+        {
+            int pointIndex;
+
+            if (m_FreePointIndices.Length > 0)
+            {
+                pointIndex = m_FreePointIndices[^1];
+                m_FreePointIndices.RemoveAtSwapBack(m_FreePointIndices.Length - 1);
+            }
+            else
+            {
+                pointIndex = m_PointCount;
+                EnsurePointCapacity(pointIndex + 1);
+            }
+
+            m_ValidPoints.Set(pointIndex, true);
+            m_PointCount++;
+
+            // Set position
+            SetPointAttribute(pointIndex, AttributeID.Position, position);
+
+            return pointIndex;
         }
 
         public bool RemovePoint(int pointIndex)
         {
-            if (!PointExists(pointIndex))
+            if (!IsPointValid(pointIndex))
                 return false;
 
-            if (m_PointToVerticesCounts[pointIndex] > 0)
+            // Remove all vertices that reference this point
+            for (int i = 0; i < m_VertexCapacity; i++)
             {
-                int start = m_PointToVerticesStarts[pointIndex];
-                int count = m_PointToVerticesCounts[pointIndex];
-                
-                for (int i = 0; i < count; i++)
+                if (m_ValidVertices.IsSet(i) && m_VertexToPoint[i] == pointIndex)
                 {
-                    int vertexIndex = m_PointToVerticesData[start + i];
-                    RemoveVertex(vertexIndex);
+                    RemoveVertex(i);
                 }
             }
 
             m_ValidPoints.Set(pointIndex, false);
             m_FreePointIndices.Add(pointIndex);
+            m_PointCount--;
 
             return true;
         }
 
+        public float3 GetPointPosition(int pointIndex)
+        {
+            return GetPointAttribute<float3>(pointIndex, AttributeID.Position);
+        }
+
+        public void SetPointPosition(int pointIndex, float3 position)
+        {
+            SetPointAttribute(pointIndex, AttributeID.Position, position);
+        }
+
+        public bool IsPointValid(int pointIndex)
+        {
+            return pointIndex >= 0 && pointIndex < m_PointCapacity && m_ValidPoints.IsSet(pointIndex);
+        }
+
+        public void GetAllValidPoints(NativeList<int> validPoints)
+        {
+            validPoints.Clear();
+            for (int i = 0; i < m_PointCapacity; i++)
+            {
+                if (m_ValidPoints.IsSet(i))
+                    validPoints.Add(i);
+            }
+        }
+
+        #endregion
+
+        #region Vertex Management
+
         public int AddVertex(int pointIndex)
         {
-            int vertexIndex = AllocateVertexIndex();
+            if (!IsPointValid(pointIndex))
+                return -1;
+
+            int vertexIndex;
+
+            if (m_FreeVertexIndices.Length > 0)
+            {
+                vertexIndex = m_FreeVertexIndices[m_FreeVertexIndices.Length - 1];
+                m_FreeVertexIndices.RemoveAtSwapBack(m_FreeVertexIndices.Length - 1);
+            }
+            else
+            {
+                vertexIndex = m_VertexCount;
+                EnsureVertexCapacity(vertexIndex + 1);
+            }
+
             m_ValidVertices.Set(vertexIndex, true);
-            
-            EnsureVertexToPointCapacity(vertexIndex);
             m_VertexToPoint[vertexIndex] = pointIndex;
-
-            AddVertexToPoint(pointIndex, vertexIndex);
-
-            EnsureVertexToPrimitivesCapacity(vertexIndex);
-            m_VertexToPrimitivesStarts[vertexIndex] = m_VertexToPrimitivesData.Length;
-            m_VertexToPrimitivesCounts[vertexIndex] = 0;
+            m_VertexCount++;
 
             return vertexIndex;
         }
 
         public bool RemoveVertex(int vertexIndex)
         {
-            if (!VertexExists(vertexIndex))
+            if (!IsVertexValid(vertexIndex))
                 return false;
 
-            if (m_VertexToPrimitivesCounts[vertexIndex] > 0)
+            // Remove from all primitives that contain this vertex
+            for (int i = 0; i < m_PrimitiveCapacity; i++)
             {
-                int start = m_VertexToPrimitivesStarts[vertexIndex];
-                int count = m_VertexToPrimitivesCounts[vertexIndex];
-                
-                for (int i = 0; i < count; i++)
+                if (m_ValidPrimitives.IsSet(i))
                 {
-                    int primIndex = m_VertexToPrimitivesData[start + i];
-                    RemoveVertexFromPrimitive(primIndex, vertexIndex);
+                    var entity = m_PrimitiveEntities[i];
+                    if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
+                    {
+                        var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
+                        for (int j = buffer.Length - 1; j >= 0; j--)
+                        {
+                            if (buffer[j].VertexIndex == vertexIndex)
+                            {
+                                buffer.RemoveAt(j);
+                            }
+                        }
+
+                        // Remove primitive if it has less than 3 vertices
+                        if (buffer.Length < 3)
+                        {
+                            RemovePrimitive(i);
+                        }
+                    }
                 }
             }
 
-            int pointIndex = m_VertexToPoint[vertexIndex];
-            RemoveVertexFromPoint(pointIndex, vertexIndex);
-            m_VertexToPoint[vertexIndex] = -1;
-
             m_ValidVertices.Set(vertexIndex, false);
             m_FreeVertexIndices.Add(vertexIndex);
+            m_VertexCount--;
 
             return true;
         }
 
         public int GetVertexPoint(int vertexIndex)
         {
-            return vertexIndex < m_VertexToPoint.Length ? m_VertexToPoint[vertexIndex] : -1;
+            if (!IsVertexValid(vertexIndex))
+                return -1;
+
+            return m_VertexToPoint[vertexIndex];
         }
 
-        public NativeArray<int> GetVerticesForPoint(int pointIndex, Allocator allocator)
+        public bool IsVertexValid(int vertexIndex)
         {
-            if (!PointExists(pointIndex) || pointIndex >= m_PointToVerticesCounts.Length)
-                return new NativeArray<int>(0, allocator);
+            return vertexIndex >= 0 && vertexIndex < m_VertexCapacity && m_ValidVertices.IsSet(vertexIndex);
+        }
 
-            int count = m_PointToVerticesCounts[pointIndex];
-            if (count == 0)
-                return new NativeArray<int>(0, allocator);
-
-            var result = new NativeArray<int>(count, allocator);
-            int start = m_PointToVerticesStarts[pointIndex];
-            
-            for (int i = 0; i < count; i++)
+        public void GetAllValidVertices(NativeList<int> validVertices)
+        {
+            validVertices.Clear();
+            for (int i = 0; i < m_VertexCapacity; i++)
             {
-                result[i] = m_PointToVerticesData[start + i];
+                if (m_ValidVertices.IsSet(i))
+                    validVertices.Add(i);
+            }
+        }
+
+        #endregion
+
+        #region Primitive Management
+
+        public int AddPrimitive(NativeArray<int> vertexIndices)
+        {
+            if (vertexIndices.Length < 3)
+                return -1;
+
+            // Validate all vertices
+            for (int i = 0; i < vertexIndices.Length; i++)
+            {
+                if (!IsVertexValid(vertexIndices[i]))
+                    return -1;
             }
 
-            return result;
-        }
+            int primitiveIndex;
 
-        public int AddPrim(NativeArray<int> pointIndices)
-        {
-            int primIndex = AllocatePrimIndex();
-            m_ValidPrimitives.Set(primIndex, true);
-
-            EnsurePrimCapacity(primIndex);
-            m_PrimStarts[primIndex] = m_PrimPointIndices.Length;
-            m_PrimCounts[primIndex] = pointIndices.Length;
-
-            for (int i = 0; i < pointIndices.Length; i++)
+            if (m_FreePrimIndices.Length > 0)
             {
-                int pointIndex = pointIndices[i];
-                int vertexIndex = AddVertex(pointIndex);
-                m_PrimPointIndices.Add(pointIndex);
-                AddPrimitiveToVertex(vertexIndex, primIndex);
+                primitiveIndex = m_FreePrimIndices[m_FreePrimIndices.Length - 1];
+                m_FreePrimIndices.RemoveAtSwapBack(m_FreePrimIndices.Length - 1);
+            }
+            else
+            {
+                primitiveIndex = m_PrimitiveCount;
+                EnsurePrimitiveCapacity(primitiveIndex + 1);
             }
 
-            return primIndex;
+            // Create entity if needed
+            Entity entity;
+            if (m_PrimitiveEntities[primitiveIndex] == Entity.Null)
+            {
+                entity = m_EntityManager.CreateEntity();
+                m_EntityManager.AddBuffer<PrimitiveVertexElement>(entity);
+                m_PrimitiveEntities[primitiveIndex] = entity;
+            }
+            else
+            {
+                entity = m_PrimitiveEntities[primitiveIndex];
+            }
+
+            // Add vertices to buffer
+            var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
+            buffer.Clear();
+            for (int i = 0; i < vertexIndices.Length; i++)
+            {
+                buffer.Add(new PrimitiveVertexElement { VertexIndex = vertexIndices[i] });
+            }
+
+            m_ValidPrimitives.Set(primitiveIndex, true);
+            m_PrimitiveCount++;
+
+            return primitiveIndex;
         }
 
-        public bool RemovePrim(int primIndex)
+        public bool RemovePrimitive(int primitiveIndex)
         {
-            if (!PrimitiveExists(primIndex))
+            if (!IsPrimitiveValid(primitiveIndex))
                 return false;
 
-            int start = m_PrimStarts[primIndex];
-            int count = m_PrimCounts[primIndex];
-
-            for (int i = 0; i < count; i++)
+            var entity = m_PrimitiveEntities[primitiveIndex];
+            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
             {
-                int pointIndex = m_PrimPointIndices[start + i];
-                var vertices = GetVerticesForPoint(pointIndex, Allocator.Temp);
-                
-                foreach (var vertexIndex in vertices)
-                {
-                    RemovePrimitiveFromVertex(vertexIndex, primIndex);
-                    RemoveVertex(vertexIndex);
-                }
-                
-                vertices.Dispose();
+                var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
+                buffer.Clear();
             }
 
-            for (int i = 0; i < count; i++)
-            {
-                m_PrimPointIndices[start + i] = -1;
-            }
-
-            m_ValidPrimitives.Set(primIndex, false);
-            m_FreePrimIndices.Add(primIndex);
+            m_ValidPrimitives.Set(primitiveIndex, false);
+            m_FreePrimIndices.Add(primitiveIndex);
+            m_PrimitiveCount--;
 
             return true;
         }
 
-        public NativeArray<int> GetPrimPoints(int primIndex, Allocator allocator)
+        public bool IsPrimitiveValid(int primitiveIndex)
         {
-            if (!PrimitiveExists(primIndex))
-                return new NativeArray<int>(0, allocator);
-
-            int start = m_PrimStarts[primIndex];
-            int count = m_PrimCounts[primIndex];
-            var result = new NativeArray<int>(count, allocator);
-            
-            for (int i = 0; i < count; i++)
-            {
-                result[i] = m_PrimPointIndices[start + i];
-            }
-
-            return result;
+            return primitiveIndex >= 0 && primitiveIndex < m_PrimitiveCapacity &&
+                   m_ValidPrimitives.IsSet(primitiveIndex);
         }
 
-        private int AllocatePointIndex()
+        public DynamicBuffer<PrimitiveVertexElement> GetPrimitiveVertices(int primitiveIndex)
         {
-            if (m_FreePointIndices.Length > 0)
+            if (!IsPrimitiveValid(primitiveIndex))
+                return default;
+
+            var entity = m_PrimitiveEntities[primitiveIndex];
+            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
             {
-                int index = m_FreePointIndices[^1];
-                m_FreePointIndices.Length--;
-                return index;
+                return m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
             }
 
-            int newIndex = m_PointCount++;
-            if (newIndex >= m_ValidPoints.Length)
-            {
-                int newCapacity = math.max(m_ValidPoints.Length * 2, newIndex + 1);
-                m_ValidPoints.Resize(newCapacity);
-                m_PointAttribs.ResizeAllAttributes(newCapacity);
-            }
-
-            return newIndex;
+            return default;
         }
 
-        private int AllocateVertexIndex()
+        public void GetPrimitiveVertexIndices(int primitiveIndex, NativeList<int> vertexIndices)
         {
-            if (m_FreeVertexIndices.Length > 0)
+            vertexIndices.Clear();
+
+            if (!IsPrimitiveValid(primitiveIndex))
+                return;
+
+            var entity = m_PrimitiveEntities[primitiveIndex];
+            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
             {
-                int index = m_FreeVertexIndices[^1];
-                m_FreeVertexIndices.Length--;
-                return index;
-            }
-
-            int newIndex = m_VertexCount++;
-            if (newIndex >= m_ValidVertices.Length)
-            {
-                int newCapacity = math.max(m_ValidVertices.Length * 2, newIndex + 1);
-                m_ValidVertices.Resize(newCapacity, NativeArrayOptions.ClearMemory);
-                m_VertexAttribs.ResizeAllAttributes(newCapacity);
-            }
-
-            return newIndex;
-        }
-
-        private int AllocatePrimIndex()
-        {
-            if (m_FreePrimIndices.Length > 0)
-            {
-                int index = m_FreePrimIndices[^1];
-                m_FreePrimIndices.Length--;
-                return index;
-            }
-
-            int newIndex = m_PrimCount++;
-            if (newIndex >= m_ValidPrimitives.Length)
-            {
-                int newCapacity = math.max(m_ValidPrimitives.Length * 2, newIndex + 1);
-                m_ValidPrimitives.Resize(newCapacity, NativeArrayOptions.ClearMemory);
-                m_PrimAttribs.ResizeAllAttributes(newCapacity);
-            }
-
-            return newIndex;
-        }
-
-        private void EnsurePointToVerticesCapacity(int pointIndex)
-        {
-            while (m_PointToVerticesStarts.Length <= pointIndex)
-            {
-                m_PointToVerticesStarts.Add(0);
-                m_PointToVerticesCounts.Add(0);
-            }
-        }
-
-        private void EnsureVertexToPointCapacity(int vertexIndex)
-        {
-            while (m_VertexToPoint.Length <= vertexIndex)
-            {
-                m_VertexToPoint.Add(-1);
-            }
-        }
-
-        private void EnsureVertexToPrimitivesCapacity(int vertexIndex)
-        {
-            while (m_VertexToPrimitivesStarts.Length <= vertexIndex)
-            {
-                m_VertexToPrimitivesStarts.Add(0);
-                m_VertexToPrimitivesCounts.Add(0);
-            }
-        }
-
-        private void EnsurePrimCapacity(int primIndex)
-        {
-            while (m_PrimStarts.Length <= primIndex)
-            {
-                m_PrimStarts.Add(0);
-                m_PrimCounts.Add(0);
-            }
-        }
-
-        private void AddVertexToPoint(int pointIndex, int vertexIndex)
-        {
-            m_PointToVerticesData.Add(vertexIndex);
-            m_PointToVerticesCounts[pointIndex]++;
-        }
-
-        private void RemoveVertexFromPoint(int pointIndex, int vertexIndex)
-        {
-            int start = m_PointToVerticesStarts[pointIndex];
-            int count = m_PointToVerticesCounts[pointIndex];
-            
-            for (int i = 0; i < count; i++)
-            {
-                if (m_PointToVerticesData[start + i] == vertexIndex)
+                var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
+                for (int i = 0; i < buffer.Length; i++)
                 {
-                    m_PointToVerticesData[start + i] = -1;
-                    break;
+                    vertexIndices.Add(buffer[i].VertexIndex);
                 }
             }
         }
 
-        private void AddPrimitiveToVertex(int vertexIndex, int primIndex)
+        public void GetAllValidPrimitives(NativeList<int> validPrimitives)
         {
-            m_VertexToPrimitivesData.Add(primIndex);
-            m_VertexToPrimitivesCounts[vertexIndex]++;
-        }
-
-        private void RemovePrimitiveFromVertex(int vertexIndex, int primIndex)
-        {
-            int start = m_VertexToPrimitivesStarts[vertexIndex];
-            int count = m_VertexToPrimitivesCounts[vertexIndex];
-            
-            for (int i = 0; i < count; i++)
+            validPrimitives.Clear();
+            for (int i = 0; i < m_PrimitiveCapacity; i++)
             {
-                if (m_VertexToPrimitivesData[start + i] == primIndex)
-                {
-                    m_VertexToPrimitivesData[start + i] = -1;
-                    break;
-                }
+                if (m_ValidPrimitives.IsSet(i))
+                    validPrimitives.Add(i);
             }
         }
 
-        private void RemoveVertexFromPrimitive(int primIndex, int vertexIndex)
+        #endregion
+
+        #region Utility Methods
+
+        public void Clear()
         {
-            int start = m_PrimStarts[primIndex];
-            int count = m_PrimCounts[primIndex];
-            
-            for (int i = 0; i < count; i++)
+            // Clear all entities
+            for (int i = 0; i < m_PrimitiveCapacity; i++)
             {
-                if (m_PrimPointIndices[start + i] == vertexIndex)
+                if (m_PrimitiveEntities[i] != Entity.Null)
                 {
-                    m_PrimPointIndices[start + i] = -1;
-                    break;
+                    m_EntityManager.DestroyEntity(m_PrimitiveEntities[i]);
+                    m_PrimitiveEntities[i] = Entity.Null;
                 }
             }
+
+            // Clear validity arrays
+            m_ValidPoints.SetBits(0, false, m_PointCapacity);
+            m_ValidVertices.SetBits(0, false, m_VertexCapacity);
+            m_ValidPrimitives.SetBits(0, false, m_PrimitiveCapacity);
+
+            // Clear free indices
+            m_FreePointIndices.Clear();
+            m_FreeVertexIndices.Clear();
+            m_FreePrimIndices.Clear();
+
+            // Reset counts
+            m_PointCount = 0;
+            m_VertexCount = 0;
+            m_PrimitiveCount = 0;
         }
+
+        #endregion
+
+        #region IDisposable
 
         public void Dispose()
         {
-            if (m_Disposed)
+            if (m_IsDisposed)
                 return;
 
-            m_PointAttribs.Dispose();
-            m_VertexAttribs.Dispose();
-            m_PrimAttribs.Dispose();
+            // Dispose validity tracking
+            if (m_ValidPoints.IsCreated)
+                m_ValidPoints.Dispose();
+            if (m_ValidVertices.IsCreated)
+                m_ValidVertices.Dispose();
+            if (m_ValidPrimitives.IsCreated)
+                m_ValidPrimitives.Dispose();
 
-            m_VertexToPoint.Dispose();
-            m_PointToVerticesData.Dispose();
-            m_PointToVerticesStarts.Dispose();
-            m_PointToVerticesCounts.Dispose();
+            // Dispose free indices
+            if (m_FreePointIndices.IsCreated)
+                m_FreePointIndices.Dispose();
+            if (m_FreeVertexIndices.IsCreated)
+                m_FreeVertexIndices.Dispose();
+            if (m_FreePrimIndices.IsCreated)
+                m_FreePrimIndices.Dispose();
 
-            m_VertexToPrimitivesData.Dispose();
-            m_VertexToPrimitivesStarts.Dispose();
-            m_VertexToPrimitivesCounts.Dispose();
+            // Dispose attributes
+            m_PointAttributes.Dispose();
+            m_VertexAttributes.Dispose();
+            m_PrimitiveAttributes.Dispose();
 
-            m_PrimPointIndices.Dispose();
-            m_PrimStarts.Dispose();
-            m_PrimCounts.Dispose();
+            // Dispose relationships
+            if (m_VertexToPoint.IsCreated)
+                m_VertexToPoint.Dispose();
 
-            m_FreePointIndices.Dispose();
-            m_FreeVertexIndices.Dispose();
-            m_FreePrimIndices.Dispose();
+            // Dispose primitive entities
+            if (m_PrimitiveEntities.IsCreated)
+            {
+                for (int i = 0; i < m_PrimitiveCapacity; i++)
+                {
+                    if (m_PrimitiveEntities[i] != Entity.Null)
+                    {
+                        m_EntityManager.DestroyEntity(m_PrimitiveEntities[i]);
+                    }
+                }
 
-            m_ValidPoints.Dispose();
-            m_ValidVertices.Dispose();
-            m_ValidPrimitives.Dispose();
+                m_PrimitiveEntities.Dispose();
+            }
 
-            m_Disposed = true;
+            m_IsDisposed = true;
         }
+
+        #endregion
     }
 }

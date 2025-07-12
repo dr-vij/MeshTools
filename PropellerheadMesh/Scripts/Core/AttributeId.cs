@@ -10,15 +10,11 @@ namespace PropellerheadMesh
     /// - Performance monitoring and metrics
     /// - Comprehensive validation and error handling
     /// </summary>
-    public static class AttributeID
+    public static partial class AttributeID
     {
         private static readonly Dictionary<string, int> s_NameToId = new();
         private static readonly Dictionary<int, string> s_IdToName = new();
         private static int s_NextId;
-
-        // Performance counters
-        private static long s_RegisterCount;
-        private static long s_LookupCount;
 
         // Standard Unity Mesh Attributes
         public static readonly int Position = Register("Position"); // Vertex positions
@@ -43,8 +39,6 @@ namespace PropellerheadMesh
         {
             return new AttribIDMetrics(
                 s_NameToId.Count,
-                s_RegisterCount,
-                s_LookupCount,
                 s_NextId
             );
         }
@@ -61,8 +55,6 @@ namespace PropellerheadMesh
 
             name = name.Trim();
 
-            s_RegisterCount++;
-
             // Try to get existing ID first
             if (s_NameToId.TryGetValue(name, out int existingId))
                 return existingId;
@@ -74,7 +66,7 @@ namespace PropellerheadMesh
             s_NameToId[name] = newId;
             s_IdToName[newId] = name;
 
-            Debug.Log($"Registered attribute: {name} -> ID {newId}");
+            // Debug.Log($"Registered attribute: {name} -> ID {newId}");
 
             return newId;
         }
@@ -103,7 +95,6 @@ namespace PropellerheadMesh
         /// <returns>The attribute name, or null if not found</returns>
         public static string GetName(int id)
         {
-            s_LookupCount++;
             return s_IdToName.GetValueOrDefault(id);
         }
 
@@ -116,8 +107,6 @@ namespace PropellerheadMesh
         {
             if (string.IsNullOrWhiteSpace(name))
                 return -1;
-
-            s_LookupCount++;
             return s_NameToId.GetValueOrDefault(name.Trim(), -1);
         }
 
@@ -192,8 +181,6 @@ namespace PropellerheadMesh
             s_NameToId.Clear();
             s_IdToName.Clear();
             s_NextId = 0;
-            s_RegisterCount = 0;
-            s_LookupCount = 0;
         }
     }
 
@@ -203,21 +190,17 @@ namespace PropellerheadMesh
     public readonly struct AttribIDMetrics
     {
         public int RegisteredCount { get; }
-        public long RegisterCount { get; }
-        public long LookupCount { get; }
         public int NextId { get; }
 
-        public AttribIDMetrics(int registeredCount, long registerCount, long lookupCount, int nextId)
+        public AttribIDMetrics(int registeredCount, int nextId)
         {
             RegisteredCount = registeredCount;
-            RegisterCount = registerCount;
-            LookupCount = lookupCount;
             NextId = nextId;
         }
 
         public override string ToString()
         {
-            return $"Registered: {RegisteredCount}, Registers: {RegisterCount}, Lookups: {LookupCount}, NextID: {NextId}";
+            return $"Registered: {RegisteredCount},  NextID: {NextId}";
         }
     }
 }
