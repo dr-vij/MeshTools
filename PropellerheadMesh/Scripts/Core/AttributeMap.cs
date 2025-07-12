@@ -13,30 +13,35 @@ namespace PropellerheadMesh
         TypeMismatch = 3,
         IndexOutOfRange = 4
     }
+    
+    public struct AttributeMetadata
+    {
+        public int Stride;
+        public int ElementCount;
+        public int TypeHash;
+    }
+
+    public struct AttributeEntry
+    {
+        public UnsafeList<byte> Buffer;
+        public int Stride;
+        public int TypeHash;
+    }
 
     public unsafe struct AttributeMap : IDisposable
     {
-        public struct AttributeMetadata
-        {
-            public int Stride;
-            public int ElementCount;
-            public int TypeHash;
-        }
-
-        private struct AttributeEntry
-        {
-            public UnsafeList<byte> Buffer;
-            public int Stride;
-            public int TypeHash;
-        }
+        private bool m_IsDisposed;
 
         private UnsafeParallelHashMap<int, AttributeEntry> m_Attributes;
         private readonly Allocator m_Allocator;
 
+		public int Count => m_Attributes.Count();
+        
         public AttributeMap(int estimatedAttributeCount, Allocator allocator)
         {
             m_Attributes = new UnsafeParallelHashMap<int, AttributeEntry>(estimatedAttributeCount, allocator);
             m_Allocator = allocator;
+            m_IsDisposed = false;
         }
 
         public AttributeMapResult RegisterAttribute<T>(int attributeId, int elementCount) where T : unmanaged
@@ -71,6 +76,19 @@ namespace PropellerheadMesh
             m_Attributes[attributeId] = entry;
 
             return AttributeMapResult.Success;
+        }
+
+        public void ResizeAllAttributes(int newElementCount)
+        {
+            using var enumerator = m_Attributes.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                var kvp = enumerator.Current;
+                var entry = kvp.Value;
+                int newSize = newElementCount * entry.Stride;
+                entry.Buffer.Resize(newSize);
+                m_Attributes[kvp.Key] = entry;
+            }
         }
 
         public AttributeMapResult RemoveAttribute(int attributeId)
@@ -148,7 +166,8 @@ namespace PropellerheadMesh
             return false;
         }
 
-        public AttributeMapResult TryGetAccessor<T>(int attributeId, out AttributeAccessor<T> accessor) where T : unmanaged
+        public AttributeMapResult TryGetAccessor<T>(int attributeId, out NativeAttributeAccessor<T> accessor)
+            where T : unmanaged
         {
             accessor = default;
 
@@ -159,31 +178,53 @@ namespace PropellerheadMesh
                 return AttributeMapResult.TypeMismatch;
 
             int elementCount = entry.Buffer.Length / entry.Stride;
-            accessor = new AttributeAccessor<T>(entry.Buffer, entry.Stride, elementCount);
+            accessor = new NativeAttributeAccessor<T>(entry.Buffer, entry.Stride, elementCount);
             return AttributeMapResult.Success;
         }
 
-        public AttributeAccessor<T> GetAccessorUnchecked<T>(int attributeId) where T : unmanaged
+        public NativeAttributeAccessor<T> GetAccessorUnchecked<T>(int attributeId) where T : unmanaged
         {
             var entry = m_Attributes[attributeId];
             int elementCount = entry.Buffer.Length / entry.Stride;
-            return new AttributeAccessor<T>(entry.Buffer, entry.Stride, elementCount);
+            return new NativeAttributeAccessor<T>(entry.Buffer, entry.Stride, elementCount);
+        }
+
+		public bool ContainsAttribute(int attributeId)
+		{
+			return m_Attributes.ContainsKey(attributeId);
+		}
+        
+        public void Clear()
+        {
+            using var enumerator = m_Attributes.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                var entry = enumerator.Current.Value;
+                if (entry.Buffer.IsCreated)
+                    entry.Buffer.Dispose();
+            }
+            m_Attributes.Clear();
         }
 
         public void Dispose()
         {
-            var keys = m_Attributes.GetKeyArray(Allocator.Temp);
-            foreach (var id in keys)
-            {
-                var entry = m_Attributes[id];
-                if (entry.Buffer.IsCreated)
-                    entry.Buffer.Dispose();
-            }
-
-            keys.Dispose();
+            if (m_IsDisposed)
+                return;
 
             if (m_Attributes.IsCreated)
+            {
+                using var enumerator = m_Attributes.GetEnumerator();
+                while (enumerator.MoveNext())
+                {
+                    var entry = enumerator.Current.Value;
+                    if (entry.Buffer.IsCreated)
+                        entry.Buffer.Dispose();
+                }
                 m_Attributes.Dispose();
+            }
+    
+            m_IsDisposed = true;
         }
+
     }
 }

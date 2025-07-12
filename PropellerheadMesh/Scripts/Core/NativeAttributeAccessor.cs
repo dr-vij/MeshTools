@@ -4,13 +4,13 @@ using Unity.Collections.LowLevel.Unsafe;
 
 namespace PropellerheadMesh
 {
-    public struct AttributeAccessor<T> where T : unmanaged
+    public readonly struct NativeAttributeAccessor<T> where T : unmanaged
     {
         private readonly UnsafeList<byte> m_Buffer;
         private readonly int m_Stride;
         private readonly int m_ElementCount;
 
-        internal AttributeAccessor(UnsafeList<byte> buffer, int stride, int elementCount)
+        internal NativeAttributeAccessor(UnsafeList<byte> buffer, int stride, int elementCount)
         {
             m_Buffer = buffer;
             m_Stride = stride;
