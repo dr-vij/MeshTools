@@ -2,7 +2,6 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 
@@ -22,7 +21,6 @@ namespace PropellerheadMesh
         [ReadOnly] [NativeDisableUnsafePtrRestriction] public unsafe void* DetailPtr;
         [ReadOnly] [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> PositionAccessor;
         [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> VertexNormalAccessor;
-        [NativeDisableUnsafePtrRestriction] public NativeAttributeAccessor<float3> PrimitiveNormalAccessor;
         
         // Pre-allocated working arrays
         [NativeDisableParallelForRestriction] public NativeArray<float3> FaceNormals;
@@ -53,20 +51,19 @@ namespace PropellerheadMesh
             for (int i = 0; i < ValidPrimitives.Length; i++)
             {
                 var primIndex = ValidPrimitives[i];
-                var buffer = detail->GetPrimitiveVertices(primIndex);
+                var vertexSlice = detail->GetPrimitiveVertices(primIndex);
                 
-                if (!buffer.IsCreated || buffer.Length < 3)
+                if (vertexSlice.Length < 3)
                 {
                     FaceNormals[primIndex] = float3.zero;
                     FaceAreas[primIndex] = 0f;
-                    PrimitiveNormalAccessor[primIndex] = float3.zero;
                     continue;
                 }
                 
                 // Get first three vertices for normal calculation
-                var v0 = buffer[0].VertexIndex;
-                var v1 = buffer[1].VertexIndex;
-                var v2 = buffer[2].VertexIndex;
+                var v0 = vertexSlice[0];
+                var v1 = vertexSlice[1];
+                var v2 = vertexSlice[2];
                 
                 // Get positions
                 var p0 = detail->GetVertexPoint(v0);
@@ -86,12 +83,11 @@ namespace PropellerheadMesh
                 
                 FaceNormals[primIndex] = normal;
                 FaceAreas[primIndex] = area;
-                PrimitiveNormalAccessor[primIndex] = normal;
                 
                 // Count adjacencies for each vertex in this primitive
-                for (int j = 0; j < buffer.Length; j++)
+                for (int j = 0; j < vertexSlice.Length; j++)
                 {
-                    var vertexIndex = buffer[j].VertexIndex;
+                    var vertexIndex = vertexSlice[j];
                     if (vertexIndex < VertexPrimitiveCounts.Length)
                     {
                         VertexPrimitiveCounts[vertexIndex]++;
@@ -112,14 +108,14 @@ namespace PropellerheadMesh
             for (int i = 0; i < ValidPrimitives.Length; i++)
             {
                 var primIndex = ValidPrimitives[i];
-                var buffer = detail->GetPrimitiveVertices(primIndex);
+                var vertexSlice = detail->GetPrimitiveVertices(primIndex);
                 
-                if (!buffer.IsCreated || buffer.Length < 3)
+                if (vertexSlice.Length < 3)
                     continue;
                 
-                for (int j = 0; j < buffer.Length; j++)
+                for (int j = 0; j < vertexSlice.Length; j++)
                 {
-                    var vertexIndex = buffer[j].VertexIndex;
+                    var vertexIndex = vertexSlice[j];
                     if (vertexIndex < VertexPrimitiveOffsets.Length)
                     {
                         var offset = VertexPrimitiveOffsets[vertexIndex];
@@ -254,17 +250,11 @@ namespace PropellerheadMesh
             if (!detail.HasVertexAttribute(AttributeID.Normal))
                 detail.AddVertexAttribute<float3>(AttributeID.Normal);
             
-            if (!detail.HasPrimitiveAttribute(AttributeID.Normal))
-                detail.AddPrimitiveAttribute<float3>(AttributeID.Normal);
-            
             // Get required accessors
             if (detail.GetPointAttributeAccessor<float3>(AttributeID.Position, out var positionAccessor) != AttributeMapResult.Success)
                 return dependency;
             
             if (detail.GetVertexAttributeAccessor<float3>(AttributeID.Normal, out var vertexNormalAccessor) != AttributeMapResult.Success)
-                return dependency;
-            
-            if (detail.GetPrimitiveAttributeAccessor<float3>(AttributeID.Normal, out var primitiveNormalAccessor) != AttributeMapResult.Success)
                 return dependency;
             
             // Get valid elements
@@ -323,7 +313,6 @@ namespace PropellerheadMesh
                 DetailPtr = detailPtr,
                 PositionAccessor = positionAccessor,
                 VertexNormalAccessor = vertexNormalAccessor,
-                PrimitiveNormalAccessor = primitiveNormalAccessor,
                 FaceNormals = faceNormals,
                 FaceAreas = faceAreas,
                 VertexPrimitiveData = vertexPrimitiveData,
@@ -361,14 +350,6 @@ namespace PropellerheadMesh
         public static float3 GetVertexNormal(ref NativeDetail detail, int vertexIndex)
         {
             return detail.GetVertexAttribute<float3>(vertexIndex, AttributeID.Normal);
-        }
-        
-        /// <summary>
-        /// Gets the current normal for a primitive
-        /// </summary>
-        public static float3 GetPrimitiveNormal(ref NativeDetail detail, int primitiveIndex)
-        {
-            return detail.GetPrimitiveAttribute<float3>(primitiveIndex, AttributeID.Normal);
         }
     }
 }

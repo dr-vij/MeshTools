@@ -27,15 +27,10 @@ namespace PropellerheadMesh
             {
                 int primIndex = validPrimitives[i];
                 
-                // Get primitive vertex indices
-                var primVertices = new NativeList<int>(allocator);
-                nativeDetail.GetPrimitiveVertexIndices(primIndex, primVertices);
-                
+                // Get primitive vertex indices directly as slice
+                var primVertices = nativeDetail.GetPrimitiveVertices(primIndex);
                 if (primVertices.Length < 3)
-                {
-                    primVertices.Dispose();
                     continue;
-                }
 
                 // Get the actual vertex positions and normals
                 var vertexPositions = new List<Vector3>();
@@ -44,7 +39,7 @@ namespace PropellerheadMesh
                 for (int v = 0; v < primVertices.Length; v++)
                 {
                     int vertexIndex = primVertices[v];
-                    int pointIndex = nativeDetail.GetVertexPoint(vertexIndex);
+                    int pointIndex = nativeDetail.GetVertexPointUnsafe(vertexIndex);
                     if (pointIndex >= 0)
                     {
                         vertexPositions.Add(positionAccessor[pointIndex]);
@@ -72,8 +67,6 @@ namespace PropellerheadMesh
                     allTriangles.Add(baseIndex + t + 1);
                     allTriangles.Add(baseIndex + t);
                 }
-
-                primVertices.Dispose();
             }
 
             validPrimitives.Dispose();

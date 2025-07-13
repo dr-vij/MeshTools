@@ -1,22 +1,11 @@
 using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Burst;
 
 namespace PropellerheadMesh
 {
-    [InternalBufferCapacity(8)]
-    public struct PrimitiveVertexElement : IBufferElementData
-    {
-        public int VertexIndex;
-
-        public static implicit operator int(PrimitiveVertexElement element) => element.VertexIndex;
-        public static implicit operator PrimitiveVertexElement(int vertexIndex) => new() { VertexIndex = vertexIndex };
-    }
-
-
     [BurstCompile]
     public struct NativeDetail : IDisposable
     {
@@ -26,7 +15,6 @@ namespace PropellerheadMesh
         // Core validity tracking
         private NativeBitArray m_ValidPoints;
         private NativeBitArray m_ValidVertices;
-        private NativeBitArray m_ValidPrimitives;
 
         // Free indices management
         private NativeList<int> m_FreePointIndices;
@@ -41,9 +29,8 @@ namespace PropellerheadMesh
         // Relationships
         private NativeArray<int> m_VertexToPoint; // vertex index -> point index
 
-        // ECS for primitives
-        private EntityManager m_EntityManager;
-        private NativeArray<Entity> m_PrimitiveEntities;
+        // Primitive vertices storage using NativeArray2D
+        private NativeArray2D<int> m_Primitives;
 
         // Capacity tracking
         private int m_PointCapacity;
@@ -59,13 +46,10 @@ namespace PropellerheadMesh
         public int VertexCount => m_VertexCount;
         public int PrimitiveCount => m_PrimitiveCount;
 
-        public EntityManager EntityManager => m_EntityManager;
-
-        public NativeDetail(int initialCapacity, EntityManager entityManager, Allocator allocator)
+        public NativeDetail(int initialCapacity, Allocator allocator)
         {
             m_Allocator = allocator;
             m_IsDisposed = false;
-            m_EntityManager = entityManager;
 
             // Initialize capacities
             m_PointCapacity = initialCapacity;
@@ -75,7 +59,6 @@ namespace PropellerheadMesh
             // Initialize validity tracking
             m_ValidPoints = new NativeBitArray(m_PointCapacity, allocator);
             m_ValidVertices = new NativeBitArray(m_VertexCapacity, allocator);
-            m_ValidPrimitives = new NativeBitArray(m_PrimitiveCapacity, allocator);
 
             // Initialize free indices
             m_FreePointIndices = new NativeList<int>(allocator);
@@ -90,8 +73,8 @@ namespace PropellerheadMesh
             // Initialize relationships
             m_VertexToPoint = new NativeArray<int>(m_VertexCapacity, allocator);
 
-            // Initialize ECS
-            m_PrimitiveEntities = new NativeArray<Entity>(m_PrimitiveCapacity, allocator);
+            // Initialize primitive vertices storage
+            m_Primitives = new NativeArray2D<int>(m_PrimitiveCapacity, 8, allocator);
 
             // Initialize counts
             m_PointCount = 0;
@@ -168,22 +151,6 @@ namespace PropellerheadMesh
             int newCapacity = m_PrimitiveCapacity;
             while (newCapacity < requiredCapacity)
                 newCapacity *= 2;
-
-            // Resize validity tracking
-            var newValidPrimitives = new NativeBitArray(newCapacity, m_Allocator);
-            for (int i = 0; i < m_PrimitiveCapacity; i++)
-            {
-                newValidPrimitives.Set(i, m_ValidPrimitives.IsSet(i));
-            }
-
-            m_ValidPrimitives.Dispose();
-            m_ValidPrimitives = newValidPrimitives;
-
-            // Resize primitive entities
-            var newPrimitiveEntities = new NativeArray<Entity>(newCapacity, m_Allocator);
-            NativeArray<Entity>.Copy(m_PrimitiveEntities, newPrimitiveEntities, m_PrimitiveCapacity);
-            m_PrimitiveEntities.Dispose();
-            m_PrimitiveEntities = newPrimitiveEntities;
 
             // Resize attributes
             m_PrimitiveAttributes.ResizeAllAttributes(newCapacity);
@@ -429,27 +396,25 @@ namespace PropellerheadMesh
                 return false;
 
             // Remove from all primitives that contain this vertex
-            for (int i = 0; i < m_PrimitiveCapacity; i++)
+            var enumerator = m_Primitives.GetActivePageEnumerator();
+            while (enumerator.MoveNext())
             {
-                if (m_ValidPrimitives.IsSet(i))
+                int pageIndex = enumerator.Current;
+                if (m_Primitives.IsActive(pageIndex))
                 {
-                    var entity = m_PrimitiveEntities[i];
-                    if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
+                    var vertexSlice = m_Primitives.GetRowSlice(pageIndex);
+                    for (int i = vertexSlice.Length - 1; i >= 0; i--)
                     {
-                        var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
-                        for (int j = buffer.Length - 1; j >= 0; j--)
+                        if (vertexSlice[i] == vertexIndex)
                         {
-                            if (buffer[j].VertexIndex == vertexIndex)
-                            {
-                                buffer.RemoveAt(j);
-                            }
+                            m_Primitives.RemoveAtArray(pageIndex, i);
                         }
+                    }
 
-                        // Remove primitive if it has less than 3 vertices
-                        if (buffer.Length < 3)
-                        {
-                            RemovePrimitive(i);
-                        }
+                    // Remove primitive if it has less than 3 vertices
+                    if (m_Primitives.GetLength(pageIndex) < 3)
+                    {
+                        RemovePrimitive(pageIndex);
                     }
                 }
             }
@@ -461,11 +426,17 @@ namespace PropellerheadMesh
             return true;
         }
 
+
         public int GetVertexPoint(int vertexIndex)
         {
             if (!IsVertexValid(vertexIndex))
                 return -1;
 
+            return m_VertexToPoint[vertexIndex];
+        }
+        
+        public int GetVertexPointUnsafe(int vertexIndex)
+        {
             return m_VertexToPoint[vertexIndex];
         }
 
@@ -487,38 +458,9 @@ namespace PropellerheadMesh
         #endregion
 
         #region Primitive Management
-        
-        /// <summary>
-        /// Gets the primitive entity for a given primitive index
-        /// </summary>
-        /// <param name="primitiveIndex">The primitive index</param>
-        /// <returns>The entity for the primitive, or Entity.Null if not found</returns>
-        public Entity GetPrimitiveEntity(int primitiveIndex)
-        {
-            if (!IsPrimitiveValid(primitiveIndex))
-                return Entity.Null;
-    
-            return m_PrimitiveEntities[primitiveIndex];
-        }
-
-        /// <summary>
-        /// Gets a copy of the primitive entities array for job usage
-        /// </summary>
-        /// <param name="allocator">Allocator for the copy</param>
-        /// <returns>A copy of the primitive entities array</returns>
-        public NativeArray<Entity> GetPrimitiveEntitiesCopy(Allocator allocator)
-        {
-            var copy = new NativeArray<Entity>(m_PrimitiveCapacity, allocator);
-            NativeArray<Entity>.Copy(m_PrimitiveEntities, copy, m_PrimitiveCapacity);
-            return copy;
-        }
-
 
         public int AddPrimitive(NativeArray<int> vertexIndices)
         {
-            if (vertexIndices.Length < 3)
-                return -1;
-
             // Validate all vertices
             for (int i = 0; i < vertexIndices.Length; i++)
             {
@@ -526,41 +468,18 @@ namespace PropellerheadMesh
                     return -1;
             }
 
-            int primitiveIndex;
+            // Ensure capacity before creating new primitive
+            EnsurePrimitiveCapacity(m_PrimitiveCount + 1);
 
-            if (m_FreePrimIndices.Length > 0)
-            {
-                primitiveIndex = m_FreePrimIndices[m_FreePrimIndices.Length - 1];
-                m_FreePrimIndices.RemoveAtSwapBack(m_FreePrimIndices.Length - 1);
-            }
-            else
-            {
-                primitiveIndex = m_PrimitiveCount;
-                EnsurePrimitiveCapacity(primitiveIndex + 1);
-            }
-
-            // Create entity if needed
-            Entity entity;
-            if (m_PrimitiveEntities[primitiveIndex] == Entity.Null)
-            {
-                entity = m_EntityManager.CreateEntity();
-                m_EntityManager.AddBuffer<PrimitiveVertexElement>(entity);
-                m_PrimitiveEntities[primitiveIndex] = entity;
-            }
-            else
-            {
-                entity = m_PrimitiveEntities[primitiveIndex];
-            }
-
-            // Add vertices to buffer
-            var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
-            buffer.Clear();
+            // Create a new array record in NativeArray2D
+            int primitiveIndex = m_Primitives.CreateArrayRecord();
+    
+            // Add vertices to the array
             for (int i = 0; i < vertexIndices.Length; i++)
             {
-                buffer.Add(new PrimitiveVertexElement { VertexIndex = vertexIndices[i] });
+                m_Primitives.Append(vertexIndices[i]);
             }
 
-            m_ValidPrimitives.Set(primitiveIndex, true);
             m_PrimitiveCount++;
 
             return primitiveIndex;
@@ -571,14 +490,11 @@ namespace PropellerheadMesh
             if (!IsPrimitiveValid(primitiveIndex))
                 return false;
 
-            var entity = m_PrimitiveEntities[primitiveIndex];
-            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
-            {
-                var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
-                buffer.Clear();
-            }
+            // Clear the primitive vertices by setting length to 0
+            // Note: NativeArray2D will automatically mark the page as inactive when length becomes 0
+            while (m_Primitives.GetLength(primitiveIndex) > 0)
+                m_Primitives.RemoveAtArray(primitiveIndex, 0);
 
-            m_ValidPrimitives.Set(primitiveIndex, false);
             m_FreePrimIndices.Add(primitiveIndex);
             m_PrimitiveCount--;
 
@@ -588,48 +504,68 @@ namespace PropellerheadMesh
         public bool IsPrimitiveValid(int primitiveIndex)
         {
             return primitiveIndex >= 0 && primitiveIndex < m_PrimitiveCapacity &&
-                   m_ValidPrimitives.IsSet(primitiveIndex);
+                   m_Primitives.IsActive(primitiveIndex);
         }
 
-        public DynamicBuffer<PrimitiveVertexElement> GetPrimitiveVertices(int primitiveIndex)
+        public NativeSlice<int> GetPrimitiveVertices(int primitiveIndex)
         {
             if (!IsPrimitiveValid(primitiveIndex))
                 return default;
 
-            var entity = m_PrimitiveEntities[primitiveIndex];
-            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
-            {
-                return m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
-            }
-
-            return default;
+            return m_Primitives.GetRowSlice(primitiveIndex);
         }
 
-        public void GetPrimitiveVertexIndices(int primitiveIndex, NativeList<int> vertexIndices)
+        public int GetPrimitiveVertexCount(int primitiveIndex)
         {
-            vertexIndices.Clear();
-
             if (!IsPrimitiveValid(primitiveIndex))
-                return;
+                return 0;
 
-            var entity = m_PrimitiveEntities[primitiveIndex];
-            if (entity != Entity.Null && m_EntityManager.HasBuffer<PrimitiveVertexElement>(entity))
+            return m_Primitives.GetLength(primitiveIndex);
+        }
+
+        public int GetPrimitiveVertex(int primitiveIndex, int vertexIndexInPrimitive)
+        {
+            if (!IsPrimitiveValid(primitiveIndex))
+                return -1;
+
+            if (vertexIndexInPrimitive < 0 || vertexIndexInPrimitive >= m_Primitives.GetLength(primitiveIndex))
+                return -1;
+
+            return m_Primitives[primitiveIndex, vertexIndexInPrimitive];
+        }
+
+        public bool AddVertexToPrimitive(int primitiveIndex, int vertexIndex)
+        {
+            if (!IsPrimitiveValid(primitiveIndex) || !IsVertexValid(vertexIndex))
+                return false;
+
+            m_Primitives.AppendAt(primitiveIndex, vertexIndex);
+            return true;
+        }
+
+        public bool RemoveVertexFromPrimitive(int primitiveIndex, int vertexIndexInPrimitive)
+        {
+            if (!IsPrimitiveValid(primitiveIndex))
+                return false;
+
+            bool result = m_Primitives.RemoveAtArray(primitiveIndex, vertexIndexInPrimitive);
+            
+            // Remove primitive if it has less than 3 vertices
+            if (result && m_Primitives.GetLength(primitiveIndex) < 3)
             {
-                var buffer = m_EntityManager.GetBuffer<PrimitiveVertexElement>(entity);
-                for (int i = 0; i < buffer.Length; i++)
-                {
-                    vertexIndices.Add(buffer[i].VertexIndex);
-                }
+                RemovePrimitive(primitiveIndex);
             }
+
+            return result;
         }
 
         public void GetAllValidPrimitives(NativeList<int> validPrimitives)
         {
             validPrimitives.Clear();
-            for (int i = 0; i < m_PrimitiveCapacity; i++)
+            var enumerator = m_Primitives.GetActivePageEnumerator();
+            while (enumerator.MoveNext())
             {
-                if (m_ValidPrimitives.IsSet(i))
-                    validPrimitives.Add(i);
+                validPrimitives.Add(enumerator.Current);
             }
         }
 
@@ -639,25 +575,18 @@ namespace PropellerheadMesh
 
         public void Clear()
         {
-            // Clear all entities
-            for (int i = 0; i < m_PrimitiveCapacity; i++)
-            {
-                if (m_PrimitiveEntities[i] != Entity.Null)
-                {
-                    m_EntityManager.DestroyEntity(m_PrimitiveEntities[i]);
-                    m_PrimitiveEntities[i] = Entity.Null;
-                }
-            }
-
             // Clear validity arrays
             m_ValidPoints.SetBits(0, false, m_PointCapacity);
             m_ValidVertices.SetBits(0, false, m_VertexCapacity);
-            m_ValidPrimitives.SetBits(0, false, m_PrimitiveCapacity);
 
             // Clear free indices
             m_FreePointIndices.Clear();
             m_FreeVertexIndices.Clear();
             m_FreePrimIndices.Clear();
+
+            // Clear primitive vertices
+            m_Primitives.Dispose();
+            m_Primitives = new NativeArray2D<int>(m_PrimitiveCapacity, 8, m_Allocator);
 
             // Reset counts
             m_PointCount = 0;
@@ -679,8 +608,6 @@ namespace PropellerheadMesh
                 m_ValidPoints.Dispose();
             if (m_ValidVertices.IsCreated)
                 m_ValidVertices.Dispose();
-            if (m_ValidPrimitives.IsCreated)
-                m_ValidPrimitives.Dispose();
 
             // Dispose free indices
             if (m_FreePointIndices.IsCreated)
@@ -699,19 +626,8 @@ namespace PropellerheadMesh
             if (m_VertexToPoint.IsCreated)
                 m_VertexToPoint.Dispose();
 
-            // Dispose primitive entities
-            if (m_PrimitiveEntities.IsCreated)
-            {
-                for (int i = 0; i < m_PrimitiveCapacity; i++)
-                {
-                    if (m_PrimitiveEntities[i] != Entity.Null)
-                    {
-                        m_EntityManager.DestroyEntity(m_PrimitiveEntities[i]);
-                    }
-                }
-
-                m_PrimitiveEntities.Dispose();
-            }
+            // Dispose primitive vertices
+            m_Primitives.Dispose();
 
             m_IsDisposed = true;
         }

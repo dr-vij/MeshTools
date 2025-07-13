@@ -91,6 +91,8 @@ namespace PropellerheadMesh
 
         public Page GetPageInfo(int index) => m_Pages[index];
 
+        public bool IsActive(int pageIndex) => m_ActivePages.IsSet(pageIndex);
+
         public void GetActivePageIndices(NativeList<int> activeIndices)
         {
             activeIndices.Clear();

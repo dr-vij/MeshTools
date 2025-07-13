@@ -20,13 +20,11 @@ namespace PropellerheadMesh
 
         [SerializeField] private float m_SmoothAngle = 60f;
 
-        private EntityManager m_Manager;
         private NativeDetail m_NativeDetail;
         private NativePositionWiggleOperator m_WiggleOperator;
 
         private void Start()
         {
-            m_Manager = World.DefaultGameObjectInjectionWorld.EntityManager;
             CreateSphere();
         }
 
@@ -34,7 +32,7 @@ namespace PropellerheadMesh
         {
             var capacity = 64;
 
-            m_NativeDetail = new NativeDetail(capacity, m_Manager, Allocator.Persistent);
+            m_NativeDetail = new NativeDetail(capacity, Allocator.Persistent);
             NativeSphereGenerator.GenerateSphere(ref m_NativeDetail, m_Radius, m_Subdives);
             m_NativeDetail.AddVertexAttribute<float3>(AttributeID.Normal);
             m_NativeDetail.AddPrimitiveAttribute<float3>(AttributeID.Normal);
@@ -56,12 +54,10 @@ namespace PropellerheadMesh
             if (m_RecalculateNormals)
             {
                 var smoothAngleRad = NativeNormalsOperators.DegreesToRadians(m_SmoothAngle);
-                normalsHandle =
-                    NativeNormalsOperators.CalculateNormals(ref m_NativeDetail, smoothAngleRad, wiggleHandle);
+                normalsHandle = NativeNormalsOperators.CalculateNormals(ref m_NativeDetail, smoothAngleRad, wiggleHandle);
             }
 
             normalsHandle.Complete();
-
             var mesh = GetComponent<MeshFilter>().mesh;
             if (mesh == null)
             {

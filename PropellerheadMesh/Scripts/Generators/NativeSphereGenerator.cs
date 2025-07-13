@@ -33,12 +33,12 @@ namespace PropellerheadMesh
             vertices.Add(math.normalize(new float3(-t, 0, -1)) * radius);
             vertices.Add(math.normalize(new float3(-t, 0, 1)) * radius);
 
-            // Initial 20 faces
+            // Initial 20 faces - reversed winding order for correct normals
             var faces = new NativeList<int3>(Allocator.Temp);
-            faces.Add(new int3(0, 11, 5)); faces.Add(new int3(0, 5, 1)); faces.Add(new int3(0, 1, 7)); faces.Add(new int3(0, 7, 10)); faces.Add(new int3(0, 10, 11));
-            faces.Add(new int3(1, 5, 9)); faces.Add(new int3(5, 11, 4)); faces.Add(new int3(11, 10, 2)); faces.Add(new int3(10, 7, 6)); faces.Add(new int3(7, 1, 8));
-            faces.Add(new int3(3, 9, 4)); faces.Add(new int3(3, 4, 2)); faces.Add(new int3(3, 2, 6)); faces.Add(new int3(3, 6, 8)); faces.Add(new int3(3, 8, 9));
-            faces.Add(new int3(4, 9, 5)); faces.Add(new int3(2, 4, 11)); faces.Add(new int3(6, 2, 10)); faces.Add(new int3(8, 6, 7)); faces.Add(new int3(9, 8, 1));
+            faces.Add(new int3(0, 5, 11)); faces.Add(new int3(0, 1, 5)); faces.Add(new int3(0, 7, 1)); faces.Add(new int3(0, 10, 7)); faces.Add(new int3(0, 11, 10));
+            faces.Add(new int3(1, 9, 5)); faces.Add(new int3(5, 4, 11)); faces.Add(new int3(11, 2, 10)); faces.Add(new int3(10, 6, 7)); faces.Add(new int3(7, 8, 1));
+            faces.Add(new int3(3, 4, 9)); faces.Add(new int3(3, 2, 4)); faces.Add(new int3(3, 6, 2)); faces.Add(new int3(3, 8, 6)); faces.Add(new int3(3, 9, 8));
+            faces.Add(new int3(4, 5, 9)); faces.Add(new int3(2, 11, 4)); faces.Add(new int3(6, 10, 2)); faces.Add(new int3(8, 7, 6)); faces.Add(new int3(9, 1, 8));
 
             // Subdivide
             for (var i = 0; i < subdivisionLevel; i++)

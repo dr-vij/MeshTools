@@ -27,7 +27,7 @@ namespace PropellerheadMesh
         {
             var capacity = 64;
 
-            m_NativeDetail = new NativeDetail(capacity, m_Manager, Allocator.Persistent);
+            m_NativeDetail = new NativeDetail(capacity, Allocator.Persistent);
             NativeCubeGenerator.GenerateCube(ref m_NativeDetail, m_Size, true);
             m_WiggleOperator = new NativePositionWiggleOperator();
             m_WiggleOperator.Initialize(ref m_NativeDetail);
