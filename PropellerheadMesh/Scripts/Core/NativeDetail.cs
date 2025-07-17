@@ -207,7 +207,8 @@ namespace PropellerheadMesh
             return m_VertexAttributes.TryGetAccessor(attributeId, out accessor);
         }
 
-        public AttributeMapResult GetPrimitiveAttributeAccessor<T>(int attributeId, out NativeAttributeAccessor<T> accessor) where T : unmanaged
+        public AttributeMapResult GetPrimitiveAttributeAccessor<T>(int attributeId,
+            out NativeAttributeAccessor<T> accessor) where T : unmanaged
         {
             return m_PrimitiveAttributes.TryGetAccessor(attributeId, out accessor);
         }
@@ -234,7 +235,7 @@ namespace PropellerheadMesh
 
             if (m_PointAttributes.TryGetAccessor<T>(attributeId, out var accessor) != AttributeMapResult.Success)
                 return false;
-            
+
             accessor[pointIndex] = value;
             return true;
         }
@@ -399,23 +400,20 @@ namespace PropellerheadMesh
             var enumerator = m_Primitives.GetActivePageEnumerator();
             while (enumerator.MoveNext())
             {
-                int pageIndex = enumerator.Current;
-                if (m_Primitives.IsActive(pageIndex))
+                int pageIndex = enumerator.CurrentIndex;
+                var vertexSlice = m_Primitives.GetRowSlice(pageIndex);
+                for (int i = vertexSlice.Length - 1; i >= 0; i--)
                 {
-                    var vertexSlice = m_Primitives.GetRowSlice(pageIndex);
-                    for (int i = vertexSlice.Length - 1; i >= 0; i--)
+                    if (vertexSlice[i] == vertexIndex)
                     {
-                        if (vertexSlice[i] == vertexIndex)
-                        {
-                            m_Primitives.RemoveAtArray(pageIndex, i);
-                        }
+                        m_Primitives.RemoveAtArray(pageIndex, i);
                     }
+                }
 
-                    // Remove primitive if it has less than 3 vertices
-                    if (m_Primitives.GetLength(pageIndex) < 3)
-                    {
-                        RemovePrimitive(pageIndex);
-                    }
+                // Remove primitive if it has less than 3 vertices
+                if (m_Primitives.GetLength(pageIndex) < 3)
+                {
+                    RemovePrimitive(pageIndex);
                 }
             }
 
@@ -434,7 +432,7 @@ namespace PropellerheadMesh
 
             return m_VertexToPoint[vertexIndex];
         }
-        
+
         public int GetVertexPointUnsafe(int vertexIndex)
         {
             return m_VertexToPoint[vertexIndex];
@@ -473,7 +471,7 @@ namespace PropellerheadMesh
 
             // Create a new array record in NativeArray2D
             int primitiveIndex = m_Primitives.CreateArrayRecord();
-    
+
             // Add vertices to the array
             for (int i = 0; i < vertexIndices.Length; i++)
             {
@@ -503,8 +501,7 @@ namespace PropellerheadMesh
 
         public bool IsPrimitiveValid(int primitiveIndex)
         {
-            return primitiveIndex >= 0 && primitiveIndex < m_PrimitiveCapacity &&
-                   m_Primitives.IsActive(primitiveIndex);
+            return primitiveIndex >= 0 && primitiveIndex < m_PrimitiveCapacity;
         }
 
         public NativeSlice<int> GetPrimitiveVertices(int primitiveIndex)
@@ -549,7 +546,7 @@ namespace PropellerheadMesh
                 return false;
 
             bool result = m_Primitives.RemoveAtArray(primitiveIndex, vertexIndexInPrimitive);
-            
+
             // Remove primitive if it has less than 3 vertices
             if (result && m_Primitives.GetLength(primitiveIndex) < 3)
             {
@@ -565,7 +562,7 @@ namespace PropellerheadMesh
             var enumerator = m_Primitives.GetActivePageEnumerator();
             while (enumerator.MoveNext())
             {
-                validPrimitives.Add(enumerator.Current);
+                validPrimitives.Add(enumerator.CurrentIndex);
             }
         }
 
