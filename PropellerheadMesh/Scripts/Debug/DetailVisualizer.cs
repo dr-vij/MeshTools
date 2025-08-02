@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
@@ -64,6 +65,49 @@ namespace PropellerheadMesh
                 Handles.Label(labelPos, i.ToString(), style);
             }
 #endif
+        }
+        
+        public static void DrawPrimitiveLines(this NativeDetail detail, Color lineColor)
+        {
+            detail.GetPointAttributeAccessor<float3>(AttributeID.Position, out var positionAccessor);
+
+            var initialColor = Gizmos.color;
+            Gizmos.color = lineColor;
+
+            // Get all valid primitives
+            var validPrimitives = new NativeList<int>(Allocator.Temp);
+            detail.GetAllValidPrimitives(validPrimitives);
+
+            for (int i = 0; i < validPrimitives.Length; i++)
+            {
+                int primIndex = validPrimitives[i];
+                
+                // Get primitive vertex indices
+                var primVertices = detail.GetPrimitiveVertices(primIndex);
+                if (primVertices.Length < 2)
+                    continue;
+
+                // Draw lines connecting consecutive vertices
+                for (int v = 0; v < primVertices.Length; v++)
+                {
+                    int currentVertexIndex = primVertices[v];
+                    int nextVertexIndex = primVertices[(v + 1) % primVertices.Length]; // Wrap around to first vertex
+                    
+                    int currentPointIndex = detail.GetVertexPoint(currentVertexIndex);
+                    int nextPointIndex = detail.GetVertexPoint(nextVertexIndex);
+                    
+                    if (currentPointIndex >= 0 && nextPointIndex >= 0)
+                    {
+                        float3 currentPos = positionAccessor[currentPointIndex];
+                        float3 nextPos = positionAccessor[nextPointIndex];
+                        
+                        Gizmos.DrawLine(currentPos, nextPos);
+                    }
+                }
+            }
+
+            validPrimitives.Dispose();
+            Gizmos.color = initialColor;
         }
     }
 }

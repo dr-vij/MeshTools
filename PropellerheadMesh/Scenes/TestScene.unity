@@ -151,7 +151,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: MeshTools::PropellerheadMesh.SphereGeneratorTest
   m_Radius: 1
-  m_Subdives: 0
+  m_Subdives: 2
   m_NoiseScale: 0
   m_WiggleAmplitude: 0
   m_TimeMultiplier:
@@ -322,7 +322,7 @@ Transform:
   m_GameObject: {fileID: 305849355}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalPosition: {x: 0, y: 0, z: -5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -725,50 +725,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1741010641
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1741010643}
-  - component: {fileID: 1741010642}
-  m_Layer: 0
-  m_Name: PropellerHeadMeshTest
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!114 &1741010642
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1741010641}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6346026f7c84808a1cccaba6ef8e58b, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: MeshTools::PropellerHeadMeshTest
---- !u!4 &1741010643
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1741010641}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -3.14423, y: 0, z: -5.26616}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1832685003
 GameObject:
   m_ObjectHideFlags: 0
@@ -778,7 +734,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1832685005}
-  - component: {fileID: 1832685004}
   m_Layer: 0
   m_Name: OLD SPHERE ExampleUsage
   m_TagString: Untagged
@@ -786,26 +741,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 0
---- !u!114 &1832685004
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1832685003}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4882cfb6fb9d14631b06b01aa788ff53, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: MeshTools::Legacy.CubeExampleUsage
-  ShowVertexSpheres: 1
-  ShowPrimitiveWireframes: 1
-  SphereRadius: 0.05
-  NoiseScale: 1
-  WiggleAmplitude: 0.3
-  TimeMultiplier: {x: 0.8, y: 0.6, z: 0.4}
-  NoiseOffset: {x: 0.3, y: 0.9, z: 0.7}
-  Subdivisions: 4
 --- !u!4 &1832685005
 Transform:
   m_ObjectHideFlags: 0
@@ -828,7 +763,6 @@ SceneRoots:
   - {fileID: 305849358}
   - {fileID: 1071842306}
   - {fileID: 1383297987}
-  - {fileID: 1741010643}
   - {fileID: 857473958}
   - {fileID: 1167460755}
   - {fileID: 229752191}

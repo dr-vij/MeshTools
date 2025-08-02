@@ -33,8 +33,8 @@ namespace PropellerheadMesh
             var capacity = 64;
 
             m_NativeDetail = new NativeDetail(capacity, Allocator.Persistent);
-            NativeSphereGenerator.GenerateSphere(ref m_NativeDetail, m_Radius, m_Subdives);
-            // NativeCubeGenerator.GenerateCube(ref m_NativeDetail, new float3(m_Radius, m_Radius, m_Radius), true);
+            // NativeSphereGenerator.GenerateSphere(ref m_NativeDetail, m_Radius, m_Subdives);
+            NativeCubeGenerator.GenerateCube(ref m_NativeDetail, new float3(m_Radius, m_Radius, m_Radius), true);
             m_NativeDetail.AddVertexAttribute<float3>(AttributeID.Normal);
             m_NativeDetail.AddPrimitiveAttribute<float3>(AttributeID.Normal);
 
@@ -75,6 +75,7 @@ namespace PropellerheadMesh
             m_NativeDetail.DrawPointGizmos(0.05f, Color.aliceBlue);
             m_NativeDetail.DrawVertexNormalsGizmos(0.3f, Color.cyan);
             m_NativeDetail.DrawPointNumbers(Color.black, 0.0333f);
+            m_NativeDetail.DrawPrimitiveLines(Color.darkOrange);
             
         }
 

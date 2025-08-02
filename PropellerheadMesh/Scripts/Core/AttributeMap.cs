@@ -13,7 +13,7 @@ namespace PropellerheadMesh
         TypeMismatch = 3,
         IndexOutOfRange = 4
     }
-    
+
     public struct AttributeMetadata
     {
         public int Stride;
@@ -35,8 +35,8 @@ namespace PropellerheadMesh
         private UnsafeParallelHashMap<int, AttributeEntry> m_Attributes;
         private readonly Allocator m_Allocator;
 
-		public int Count => m_Attributes.Count();
-        
+        public int Count => m_Attributes.Count();
+
         public AttributeMap(int estimatedAttributeCount, Allocator allocator)
         {
             m_Attributes = new UnsafeParallelHashMap<int, AttributeEntry>(estimatedAttributeCount, allocator);
@@ -189,11 +189,11 @@ namespace PropellerheadMesh
             return new NativeAttributeAccessor<T>(entry.Buffer, entry.Stride, elementCount);
         }
 
-		public bool ContainsAttribute(int attributeId)
-		{
-			return m_Attributes.ContainsKey(attributeId);
-		}
-        
+        public bool ContainsAttribute(int attributeId)
+        {
+            return m_Attributes.ContainsKey(attributeId);
+        }
+
         public void Clear()
         {
             using var enumerator = m_Attributes.GetEnumerator();
@@ -203,8 +203,98 @@ namespace PropellerheadMesh
                 if (entry.Buffer.IsCreated)
                     entry.Buffer.Dispose();
             }
+
             m_Attributes.Clear();
         }
+
+        #region Copy
+
+        /// <summary>
+        /// Creates a complete copy of this AttributeMap with all attributes and data
+        /// </summary>
+        public AttributeMap Copy(Allocator allocator)
+        {
+            var copy = new AttributeMap(Count, allocator);
+
+            using var enumerator = m_Attributes.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                var kvp = enumerator.Current;
+                int attributeId = kvp.Key;
+                var entry = kvp.Value;
+
+                // Create new buffer and copy data
+                var newBuffer = new UnsafeList<byte>(entry.Buffer.Length, allocator);
+                newBuffer.Length = entry.Buffer.Length;
+
+                // Copy all data
+                UnsafeUtility.MemCpy(newBuffer.Ptr, entry.Buffer.Ptr, entry.Buffer.Length);
+
+                // Add to new map
+                copy.m_Attributes[attributeId] = new AttributeEntry
+                {
+                    Buffer = newBuffer,
+                    Stride = entry.Stride,
+                    TypeHash = entry.TypeHash
+                };
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Copies the structure (attribute types and sizes) to target map with new element count
+        /// </summary>
+        public void CopyStructureTo(AttributeMap target, int newElementCount)
+        {
+            using var enumerator = m_Attributes.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                var kvp = enumerator.Current;
+                int attributeId = kvp.Key;
+                var entry = kvp.Value;
+
+                // Create new buffer with new size
+                int newSize = newElementCount * entry.Stride;
+                var newBuffer = new UnsafeList<byte>(newSize, target.m_Allocator);
+                newBuffer.Length = newSize;
+
+                // Add to target map
+                target.m_Attributes[attributeId] = new AttributeEntry
+                {
+                    Buffer = newBuffer,
+                    Stride = entry.Stride,
+                    TypeHash = entry.TypeHash
+                };
+            }
+        }
+
+        /// <summary>
+        /// Copies a single element from source to target at specified indices
+        /// </summary>
+        public unsafe void CopyElementTo(AttributeMap target, int sourceIndex, int targetIndex)
+        {
+            using var enumerator = m_Attributes.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                var kvp = enumerator.Current;
+                int attributeId = kvp.Key;
+                var sourceEntry = kvp.Value;
+
+                if (!target.m_Attributes.TryGetValue(attributeId, out var targetEntry))
+                    continue;
+
+                if (sourceEntry.TypeHash != targetEntry.TypeHash)
+                    continue;
+
+                // Copy data
+                byte* sourcePtr = sourceEntry.Buffer.Ptr + sourceIndex * sourceEntry.Stride;
+                byte* targetPtr = targetEntry.Buffer.Ptr + targetIndex * targetEntry.Stride;
+                UnsafeUtility.MemCpy(targetPtr, sourcePtr, sourceEntry.Stride);
+            }
+        }
+
+        #endregion
 
         public void Dispose()
         {
@@ -220,11 +310,11 @@ namespace PropellerheadMesh
                     if (entry.Buffer.IsCreated)
                         entry.Buffer.Dispose();
                 }
+
                 m_Attributes.Dispose();
             }
-    
+
             m_IsDisposed = true;
         }
-
     }
 }

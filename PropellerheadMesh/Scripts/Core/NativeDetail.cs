@@ -6,7 +6,7 @@ using Unity.Burst;
 namespace PropellerheadMesh
 {
     [BurstCompile]
-    public struct NativeDetail : IDisposable
+    public partial struct NativeDetail : IDisposable
     {
         private bool m_IsDisposed;
         private readonly Allocator m_Allocator;
@@ -63,7 +63,7 @@ namespace PropellerheadMesh
             m_FreePointIndices = new NativeList<int>(allocator);
             m_FreeVertexIndices = new NativeList<int>(allocator);
             m_FreePrimIndices = new NativeList<int>(allocator);
-
+            
             // Initialize attributes
             m_PointAttributes = new AttributeMap(8, allocator);
             m_VertexAttributes = new AttributeMap(8, allocator);
