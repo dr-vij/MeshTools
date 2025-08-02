@@ -29,15 +29,15 @@ namespace PropellerheadMesh
             for (var i = 0; i < cubeVertices.Length; i++)
                 pointIndices[i] = detail.AddPoint(cubeVertices[i]);
 
-            // Create 6 faces (quads) of the cube - each face uses 4 vertices
+            // Create 6 faces (quads) of the cube - CW winding (clockwise)
             var cubeFaces = new NativeArray<NativeArray<int>>(6, Allocator.Temp)
             {
-                [0] = new NativeArray<int>(new[] { 0, 1, 2, 3 }, Allocator.Temp), // Back face
-                [1] = new NativeArray<int>(new[] { 4, 7, 6, 5 }, Allocator.Temp), // Front face
-                [2] = new NativeArray<int>(new[] { 0, 4, 5, 1 }, Allocator.Temp), // Bottom face
-                [3] = new NativeArray<int>(new[] { 3, 2, 6, 7 }, Allocator.Temp), // Top face
-                [4] = new NativeArray<int>(new[] { 0, 3, 7, 4 }, Allocator.Temp), // Left face
-                [5] = new NativeArray<int>(new[] { 1, 5, 6, 2 }, Allocator.Temp) // Right face
+                [0] = new NativeArray<int>(new[] { 0, 3, 2, 1 }, Allocator.Temp), // Back face
+                [1] = new NativeArray<int>(new[] { 4, 5, 6, 7 }, Allocator.Temp), // Front face
+                [2] = new NativeArray<int>(new[] { 0, 1, 5, 4 }, Allocator.Temp), // Bottom face
+                [3] = new NativeArray<int>(new[] { 3, 7, 6, 2 }, Allocator.Temp), // Top face
+                [4] = new NativeArray<int>(new[] { 0, 4, 7, 3 }, Allocator.Temp), // Left face
+                [5] = new NativeArray<int>(new[] { 1, 2, 6, 5 }, Allocator.Temp)  // Right face
             };
 
             // Face normals for each face

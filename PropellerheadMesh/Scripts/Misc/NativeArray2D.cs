@@ -1,46 +1,16 @@
 using System;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 
 namespace PropellerheadMesh
 {
-    public struct Page
-    {
-        public int StartIndex;
-        public int DataLength;
-        public int Capacity;
-    }
-
-    public struct ActivePageEnumerator
-    {
-        private NativeList<Page> m_ActivePages;
-        private int m_CurrentIndex;
-
-        public ActivePageEnumerator(NativeList<Page> activePages)
-        {
-            m_ActivePages = activePages;
-            m_CurrentIndex = -1;
-        }
-
-        public bool MoveNext()
-        {
-            m_CurrentIndex++;
-            return m_CurrentIndex < m_ActivePages.Length;
-        }
-
-        public Page CurrentPage => m_ActivePages[m_CurrentIndex];
-        
-        public int CurrentIndex => m_CurrentIndex;
-
-        public ActivePageEnumerator GetEnumerator() => this;
-    }
-
+    [NativeContainer]
     public struct NativeArray2D<T> : IDisposable where T : unmanaged
     {
-        private NativeList<Page> m_Pages;
+        private NativeList<PageInfo> m_Pages;
         private NativeList<T> m_DataRecords;
-        private Allocator m_Allocator;
-        private int m_DefaultPageSize;
+        private readonly int m_DefaultPageSize;
         private int m_LastRecordIndex;
 
         public int Count => m_Pages.Length;
@@ -64,8 +34,7 @@ namespace PropellerheadMesh
         public NativeArray2D(int initialCapacity, int defaultPageSize = 8, Allocator allocator = Allocator.Persistent)
         {
             m_DefaultPageSize = defaultPageSize;
-            m_Allocator = allocator;
-            m_Pages = new NativeList<Page>(initialCapacity, allocator);
+            m_Pages = new NativeList<PageInfo>(initialCapacity, allocator);
             m_DataRecords = new NativeList<T>(initialCapacity * 4, allocator);
             m_LastRecordIndex = -1;
         }
@@ -75,14 +44,14 @@ namespace PropellerheadMesh
             return new ActivePageEnumerator(m_Pages);
         }
 
-        public Page GetPageInfo(int index) => m_Pages[index];
+        public PageInfo GetPageInfo(int index) => m_Pages[index];
 
         public int CreateArrayRecord(int pageSize = -1)
         {
             int startAddress = m_DataRecords.Length;
             int actualPageSize = pageSize < 0 ? m_DefaultPageSize : pageSize;
 
-            var page = new Page
+            var page = new PageInfo
             {
                 StartIndex = startAddress,
                 DataLength = 0,
@@ -228,7 +197,7 @@ namespace PropellerheadMesh
             return dependencies;
         }
 
-        #region Managed Zone
+        #region Managed Implementations
 
         public int AddArray(T[] rowData)
         {
@@ -239,9 +208,7 @@ namespace PropellerheadMesh
         public void ForEachActivePage(Action<int> action)
         {
             for (int i = 0; i < m_Pages.Length; i++)
-            {
                 action(i);
-            }
         }
 
         public void ForEachActivePageSlice(Action<int, NativeSlice<T>> action)

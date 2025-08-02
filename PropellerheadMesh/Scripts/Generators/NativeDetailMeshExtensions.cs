@@ -64,8 +64,8 @@ namespace PropellerheadMesh
                 for (int t = 1; t < vertexPositions.Count - 1; t++)
                 {
                     allTriangles.Add(baseIndex);
-                    allTriangles.Add(baseIndex + t + 1);
                     allTriangles.Add(baseIndex + t);
+                    allTriangles.Add(baseIndex + t + 1);
                 }
             }
 

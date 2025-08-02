@@ -114,20 +114,20 @@ namespace Legacy.Misc
             float u = Fade(x);
             float v = Fade(y);
             float w = Fade(z);
-            int A = GetPermutation(X) + Y;
-            int AA = GetPermutation(A) + Z;
-            int AB = GetPermutation(A + 1) + Z;
-            int B = GetPermutation(X + 1) + Y;
-            int BA = GetPermutation(B) + Z;
-            int BB = GetPermutation(B + 1) + Z;
+            int a = GetPermutation(X) + Y;
+            int aa = GetPermutation(a) + Z;
+            int ab = GetPermutation(a + 1) + Z;
+            int b = GetPermutation(X + 1) + Y;
+            int ba = GetPermutation(b) + Z;
+            int bb = GetPermutation(b + 1) + Z;
 
             return math.lerp(
                 math.lerp(
-                    math.lerp(Grad3D(GetPermutation(AA), x, y, z), Grad3D(GetPermutation(BA), x - 1, y, z), u),
-                    math.lerp(Grad3D(GetPermutation(AB), x, y - 1, z), Grad3D(GetPermutation(BB), x - 1, y - 1, z), u), v),
+                    math.lerp(Grad3D(GetPermutation(aa), x, y, z), Grad3D(GetPermutation(ba), x - 1, y, z), u),
+                    math.lerp(Grad3D(GetPermutation(ab), x, y - 1, z), Grad3D(GetPermutation(bb), x - 1, y - 1, z), u), v),
                 math.lerp(
-                    math.lerp(Grad3D(GetPermutation(AA + 1), x, y, z - 1), Grad3D(GetPermutation(BA + 1), x - 1, y, z - 1), u),
-                    math.lerp(Grad3D(GetPermutation(AB + 1), x, y - 1, z - 1), Grad3D(GetPermutation(BB + 1), x - 1, y - 1, z - 1), u), v), w);
+                    math.lerp(Grad3D(GetPermutation(aa + 1), x, y, z - 1), Grad3D(GetPermutation(ba + 1), x - 1, y, z - 1), u),
+                    math.lerp(Grad3D(GetPermutation(ab + 1), x, y - 1, z - 1), Grad3D(GetPermutation(bb + 1), x - 1, y - 1, z - 1), u), v), w);
         }
 
         // Wrapper functions for struct parameters (non-Burst)
@@ -232,7 +232,7 @@ namespace Legacy.Misc
             {
                 float n = math.abs(Noise2D(x * frequency, y * frequency));
                 n = 1.0f - n;
-                n = n * n;
+                n *= n;
                 total += n * amplitude;
                 frequency *= lacunarity;
                 amplitude *= gain;

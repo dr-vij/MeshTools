@@ -64,7 +64,7 @@ namespace Plugins.MeshTools.PropellerheadMesh.Scripts.Tests
             int activePageCount = 0;
             while (enumerator.MoveNext())
             {
-                var page = enumerator.CurrentPage;
+                var page = enumerator.CurrentPageInfo;
                 Assert.IsTrue(page.DataLength > 0);
                 activePageCount++;
             }
