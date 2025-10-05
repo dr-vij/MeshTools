@@ -63,7 +63,7 @@ namespace PropellerheadMesh
             m_FreePointIndices = new NativeList<int>(allocator);
             m_FreeVertexIndices = new NativeList<int>(allocator);
             m_FreePrimIndices = new NativeList<int>(allocator);
-            
+
             // Initialize attributes
             m_PointAttributes = new AttributeMap(8, allocator);
             m_VertexAttributes = new AttributeMap(8, allocator);
@@ -423,7 +423,6 @@ namespace PropellerheadMesh
             return true;
         }
 
-
         public int GetVertexPoint(int vertexIndex)
         {
             if (!IsVertexValid(vertexIndex))
@@ -561,7 +560,8 @@ namespace PropellerheadMesh
             var enumerator = m_Primitives.GetActivePageEnumerator();
             while (enumerator.MoveNext())
             {
-                validPrimitives.Add(enumerator.CurrentIndex);
+                if (enumerator.CurrentPageInfo.DataLength > 0)
+                    validPrimitives.Add(enumerator.CurrentIndex);
             }
         }
 

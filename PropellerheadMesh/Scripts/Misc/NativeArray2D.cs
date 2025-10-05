@@ -183,6 +183,31 @@ namespace PropellerheadMesh
             var page = m_Pages[rowIndex];
             return m_DataRecords.AsArray().GetSubArray(page.StartIndex, page.DataLength);
         }
+        
+        /// <summary>
+        /// Creates a complete copy of this NativeArray2D with all pages and data
+        /// </summary>
+        /// <param name="allocator">The allocator to use for the new copy</param>
+        /// <returns>A new NativeArray2D containing all the same data</returns>
+        public NativeArray2D<T> GetCopy(Allocator allocator = Allocator.Persistent)
+        {
+            var copy = new NativeArray2D<T>(m_Pages.Length, m_DefaultPageSize, allocator);
+            for (int i = 0; i < m_Pages.Length; i++)
+            {
+                var originalPage = m_Pages[i];
+                int newRecordIndex = copy.CreateArrayRecord(originalPage.Capacity);
+                for (int j = 0; j < originalPage.DataLength; j++)
+                {
+                    var element = m_DataRecords[originalPage.StartIndex + j];
+                    copy.m_DataRecords[copy.m_Pages[newRecordIndex].StartIndex + j] = element;
+                }
+                var copiedPage = copy.m_Pages[newRecordIndex];
+                copiedPage.DataLength = originalPage.DataLength;
+                copy.m_Pages[newRecordIndex] = copiedPage;
+            }
+            copy.m_LastRecordIndex = m_LastRecordIndex;
+            return copy;
+        }
 
         public void Dispose()
         {

@@ -6,7 +6,7 @@ namespace PropellerheadMesh
 {
     public partial struct NativeDetail
     {
-        public NativeDetail GetTriangulatedCopy(Allocator persistent)
+        public NativeDetail GetCopy(Allocator persistent)
         {
             return new NativeDetail(0, persistent);
         }
